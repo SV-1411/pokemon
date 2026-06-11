@@ -1,0 +1,10 @@
+{
+  "name": "pokemon-india",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Open-world 3D Pokemon game across a map of India — all 898 Gen 1-8 Pokemon",
+  "scripts": {
+    "bake": "node tools/bake_data.mjs",
+    "serve": "python -m http.server 8000"
+  }
+}
