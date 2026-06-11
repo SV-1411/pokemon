@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>POKeMON - CLAUDE EDITION</title>
+<style>
+  /* GBA vibes: 240x160 logical screen scaled up, chunky font, cream/green palette */
+  @font-face { font-family: 'gba'; src: local('Courier New'); }
+  * { box-sizing: border-box; margin: 0; padding: 0; image-rendering: pixelated; }
+  body {
+    background: #1a1c2c; display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; font-family: 'Press Start 2P', 'gba', monospace;
+  }
+  #shell {
+    width: 720px; height: 480px; background: #f8f8d8; border: 12px solid #5a4a9c;
+    border-radius: 18px; position: relative; overflow: hidden;
+    box-shadow: 0 0 0 6px #2c2654, 0 18px 40px rgba(0,0,0,.6);
+  }
+  .screen { position: absolute; inset: 0; padding: 18px; display: none; }
+  .screen.active { display: block; }
+  h1 { font-size: 26px; color: #303048; text-align: center; letter-spacing: 2px; }
+  .sub { text-align: center; color: #707088; font-size: 12px; margin-top: 8px; }
+
+  /* ---------- team select ---------- */
+  #roster { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 12px; }
+  .mon-card {
+    background: #fff; border: 3px solid #303048; border-radius: 8px; padding: 8px;
+    cursor: pointer; text-align: center; transition: transform .06s; user-select: none;
+  }
+  .mon-card:hover { transform: translateY(-2px); }
+  .mon-card.picked { background: #b8e8b0; border-color: #2a7a2a; }
+  .mon-card .spr { font-size: 26px; line-height: 1.2; }
+  .mon-card .nm { font-size: 10px; font-weight: bold; color: #303048; }
+  .mon-card .tp { font-size: 9px; color: #707088; }
+  #pickCount { text-align: center; margin-top: 10px; font-size: 12px; color: #303048; }
+  .btn {
+    display: block; margin: 12px auto 0; padding: 10px 26px; font-family: inherit;
+    font-size: 13px; font-weight: bold; background: #e84848; color: #fff;
+    border: 3px solid #802020; border-radius: 8px; cursor: pointer;
+  }
+  .btn:disabled { background: #a8a8a8; border-color: #707070; cursor: not-allowed; }
+
+  /* ---------- battle ---------- */
+  #battle { background: linear-gradient(#a8d8f0 0 55%, #88c068 55% 100%); padding: 0; }
+  .platform { position: absolute; border-radius: 50%; background: rgba(60,120,40,.45); }
+  #platEnemy { width: 190px; height: 48px; right: 60px; top: 150px; }
+  #platMe    { width: 210px; height: 54px; left: 50px; top: 296px; }
+  .sprite { position: absolute; font-size: 72px; filter: drop-shadow(2px 4px 2px rgba(0,0,0,.3)); transition: opacity .3s; }
+  #sprEnemy { right: 105px; top: 80px; }
+  #sprMe { left: 105px; top: 226px; font-size: 84px; transform: scaleX(-1); }
+  .shake { animation: shake .35s; } @keyframes shake { 25%{transform:translateX(-8px)} 50%{transform:translateX(8px)} 75%{transform:translateX(-5px)} }
+  .shakeMe { animation: shakeM .35s; } @keyframes shakeM { 25%{transform:scaleX(-1) translateX(-8px)} 50%{transform:scaleX(-1) translateX(8px)} 75%{transform:scaleX(-1) translateX(-5px)} }
+
+  .infobox {
+    position: absolute; background: #f8f8d8; border: 3px solid #303048; border-radius: 8px;
+    padding: 8px 10px; width: 250px; font-size: 11px; color: #303048;
+  }
+  #infoEnemy { left: 22px; top: 26px; }
+  #infoMe { right: 22px; top: 240px; }
+  .hpRow { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+  .hpLabel { font-size: 9px; font-weight: bold; color: #c87800; }
+  .hpOuter { flex: 1; height: 8px; background: #585858; border-radius: 4px; overflow: hidden; }
+  .hpInner { height: 100%; width: 100%; background: #30c030; transition: width .4s; }
+  .hpText { font-size: 10px; text-align: right; margin-top: 4px; }
+  .ballRow { font-size: 9px; margin-top: 4px; letter-spacing: 2px; }
+
+  #textbox {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 118px;
+    background: #283050; border-top: 5px solid #f8f8d8; padding: 12px; display: flex; gap: 10px;
+  }
+  #msg {
+    flex: 1.3; background: #f8f8d8; border: 3px solid #9098b8; border-radius: 8px;
+    padding: 10px; font-size: 13px; color: #303048; line-height: 1.6; cursor: pointer;
+  }
+  #menu { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .mbtn {
+    font-family: inherit; font-size: 10px; font-weight: bold; background: #f8f8d8;
+    border: 3px solid #9098b8; border-radius: 8px; cursor: pointer; color: #303048; padding: 4px;
+  }
+  .mbtn:hover { border-color: #e84848; }
+  .mbtn small { display: block; font-weight: normal; font-size: 8px; color: #707088; }
+  .hidden { display: none !important; }
+
+  /* ---------- result ---------- */
+  #result { text-align: center; padding-top: 110px; }
+  #resultText { font-size: 30px; color: #303048; }
+</style>
+</head>
+<body>
+<div id="shell">
+
+  <div id="title" class="screen active">
+    <div style="padding-top:90px">
+      <h1>POKeMON</h1>
+      <h1 style="font-size:16px;margin-top:10px;color:#e84848">CLAUDE EDITION</h1>
+      <p class="sub">A wild AI wants to battle!<br><br>Trainer CLAUDE sent a team of 6.<br>Pick your 6 and prove it was ragebait.<br><br><b style="color:#e84848">⚠ HARD MODE: the AI now predicts damage,<br>takes guaranteed KOs and switches matchups.</b></p>
+      <button class="btn" onclick="show('select')">START</button>
+    </div>
+  </div>
+
+  <div id="select" class="screen">
+    <h1 style="font-size:15px">CHOOSE 6 POKeMON</h1>
+    <div id="roster"></div>
+    <div id="pickCount">0 / 6 picked</div>
+    <button id="fightBtn" class="btn" disabled onclick="startBattle()">FIGHT!</button>
+  </div>
+
+  <div id="battle" class="screen">
+    <div class="platform" id="platEnemy"></div>
+    <div class="platform" id="platMe"></div>
+    <div class="sprite" id="sprEnemy"></div>
+    <div class="sprite" id="sprMe"></div>
+
+    <div class="infobox" id="infoEnemy">
+      <span id="enName">?</span> <span id="enLv" style="float:right">Lv50</span>
+      <div class="hpRow"><span class="hpLabel">HP</span><div class="hpOuter"><div class="hpInner" id="enHp"></div></div></div>
+      <div class="ballRow" id="enBalls"></div>
+    </div>
+    <div class="infobox" id="infoMe">
+      <span id="myName">?</span> <span style="float:right">Lv50</span>
+      <div class="hpRow"><span class="hpLabel">HP</span><div class="hpOuter"><div class="hpInner" id="myHp"></div></div></div>
+      <div class="hpText" id="myHpText"></div>
+      <div class="ballRow" id="myBalls"></div>
+    </div>
+
+    <div id="textbox">
+      <div id="msg">...</div>
+      <div id="menu"></div>
+    </div>
+  </div>
+
+  <div id="result" class="screen">
+    <div id="resultText"></div>
+    <p class="sub" id="resultSub"></p>
+    <button class="btn" onclick="location.reload()">PLAY AGAIN</button>
+  </div>
+</div>
+
+<script>
+// ============================================================ data
+const TYPES = ["Normal","Fire","Water","Grass","Electric","Ice","Fighting","Poison","Ground","Flying","Psychic","Ghost","Dragon","Rock"];
+// effectiveness[attacker][defender] (1 unless listed)
+const EFF = {
+  Fire:{Grass:2,Ice:2,Water:.5,Fire:.5,Rock:.5,Dragon:.5},
+  Water:{Fire:2,Ground:2,Rock:2,Water:.5,Grass:.5,Dragon:.5},
+  Grass:{Water:2,Ground:2,Rock:2,Fire:.5,Grass:.5,Poison:.5,Flying:.5,Dragon:.5},
+  Electric:{Water:2,Flying:2,Grass:.5,Electric:.5,Dragon:.5,Ground:0},
+  Ice:{Grass:2,Ground:2,Flying:2,Dragon:2,Water:.5,Fire:.5,Ice:.5},
+  Fighting:{Normal:2,Ice:2,Rock:2,Poison:.5,Flying:.5,Psychic:.5,Ghost:0},
+  Poison:{Grass:2,Poison:.5,Ground:.5,Rock:.5,Ghost:.5},
+  Ground:{Fire:2,Electric:2,Poison:2,Rock:2,Grass:.5,Flying:0},
+  Flying:{Grass:2,Fighting:2,Electric:.5,Rock:.5},
+  Psychic:{Fighting:2,Poison:2,Psychic:.5},
+  Ghost:{Ghost:2,Psychic:2,Normal:0},
+  Dragon:{Dragon:2},
+  Rock:{Fire:2,Ice:2,Flying:2,Fighting:.5,Ground:.5},
+  Normal:{Rock:.5,Ghost:0},
+};
+function eff(atkType, defTypes){ let m=1; for(const t of defTypes){ const row=EFF[atkType]; if(row && t in row) m*=row[t]; } return m; }
+
+// move: [name, type, power, accuracy(0-100), priority]
+const MOVES = {
+  Flamethrower:["Fire",90,100,0], FireBlast:["Fire",110,85,0], Thunderbolt:["Electric",90,100,0],
+  Thunder:["Electric",110,70,0], Surf:["Water",90,100,0], HydroPump:["Water",110,80,0],
+  IceBeam:["Ice",90,100,0], Blizzard:["Ice",110,70,0], Psychic:["Psychic",90,100,0],
+  ShadowBall:["Ghost",80,100,0], SludgeBomb:["Poison",90,100,0], Earthquake:["Ground",100,100,0],
+  RockSlide:["Rock",75,90,0], BodySlam:["Normal",85,100,0], HyperBeam:["Normal",150,90,0],
+  QuickAttack:["Normal",40,100,1], ExtremeSpeed:["Normal",80,100,2], DragonClaw:["Dragon",80,100,0],
+  Outrage:["Dragon",120,100,0], SolarBeam:["Grass",120,100,0], LeafBlade:["Grass",90,100,0],
+  CloseCombat:["Fighting",120,100,0], BrickBreak:["Fighting",75,100,0], AirSlash:["Flying",75,95,0],
+  Crunch:["Normal",80,100,0], FlareBlitz:["Fire",120,100,0], AquaTail:["Water",90,90,0],
+  ThunderPunch:["Electric",75,100,0], IcePunch:["Ice",75,100,0], Megahorn:["Normal",120,85,0],
+};
+
+// mon: emoji, types, [hp,atk,def,spe], moves
+const DEX = {
+  Charizard:{s:"🐉",t:["Fire","Flying"],b:[78,84,78,100],m:["Flamethrower","AirSlash","DragonClaw","FireBlast"]},
+  Blastoise:{s:"🐢",t:["Water"],b:[79,83,100,78],m:["Surf","IceBeam","HydroPump","BodySlam"]},
+  Venusaur:{s:"🌺",t:["Grass","Poison"],b:[80,82,83,80],m:["LeafBlade","SludgeBomb","SolarBeam","BodySlam"]},
+  Pikachu:{s:"⚡",t:["Electric"],b:[60,75,50,110],m:["Thunderbolt","QuickAttack","Thunder","BodySlam"]},
+  Gengar:{s:"👻",t:["Ghost","Poison"],b:[60,65,60,110],m:["ShadowBall","SludgeBomb","Psychic","Thunderbolt"]},
+  Alakazam:{s:"🥄",t:["Psychic"],b:[55,50,45,120],m:["Psychic","ShadowBall","ThunderPunch","IcePunch"]},
+  Machamp:{s:"💪",t:["Fighting"],b:[90,130,80,55],m:["CloseCombat","Earthquake","RockSlide","BrickBreak"]},
+  Golem:{s:"🪨",t:["Rock","Ground"],b:[80,120,130,45],m:["Earthquake","RockSlide","BodySlam","Megahorn"]},
+  Lapras:{s:"🦕",t:["Water","Ice"],b:[130,85,80,60],m:["Surf","IceBeam","Blizzard","BodySlam"]},
+  Snorlax:{s:"😴",t:["Normal"],b:[160,110,65,30],m:["BodySlam","Earthquake","HyperBeam","Crunch"]},
+  Dragonite:{s:"🐲",t:["Dragon","Flying"],b:[91,134,95,80],m:["Outrage","ExtremeSpeed","Earthquake","FireBlast"]},
+  Arcanine:{s:"🐕",t:["Fire"],b:[90,110,80,95],m:["FlareBlitz","ExtremeSpeed","Crunch","BodySlam"]},
+  Jolteon:{s:"🦊",t:["Electric"],b:[65,65,60,130],m:["Thunderbolt","Thunder","QuickAttack","ShadowBall"]},
+  Exeggutor:{s:"🌴",t:["Grass","Psychic"],b:[95,95,85,55],m:["Psychic","SolarBeam","LeafBlade","SludgeBomb"]},
+  Gyarados:{s:"🐍",t:["Water","Flying"],b:[95,125,79,81],m:["AquaTail","Crunch","Earthquake","HyperBeam"]},
+  Rhydon:{s:"🦏",t:["Ground","Rock"],b:[105,130,120,40],m:["Earthquake","RockSlide","Megahorn","BodySlam"]},
+  Milotic:{s:"🐬",t:["Water"],b:[95,100,79,81],m:["Surf","IceBeam","HydroPump","DragonClaw"]},
+  Luxray:{s:"🦁",t:["Electric"],b:[80,120,79,70],m:["Thunderbolt","Crunch","Thunder","QuickAttack"]},
+  Roserade:{s:"🌹",t:["Grass","Poison"],b:[60,110,65,90],m:["LeafBlade","SludgeBomb","SolarBeam","ShadowBall"]},
+  Tyranitar:{s:"🦖",t:["Rock"],b:[100,134,110,61],m:["RockSlide","Crunch","Earthquake","IcePunch"]},
+};
+
+const CLAUDE_TEAM = ["Gengar","Dragonite","Blastoise","Arcanine","Alakazam","Snorlax"];
+
+// ============================================================ helpers
+function mkMon(name){
+  const d = DEX[name];
+  const hp = Math.floor(d.b[0]*2*0.5)+110; // lv50-ish
+  return { name, spr:d.s, types:d.t, maxHp:hp, hp,
+           atk:d.b[1]+55, def:d.b[2]+55, spe:d.b[3]+55, moves:d.m };
+}
+function dmg(att, def, mvName){
+  const [type,power,acc,] = MOVES[mvName];
+  if (Math.random()*100 > acc) return {miss:true};
+  const stab = att.types.includes(type) ? 1.5 : 1;
+  const e = eff(type, def.types);
+  const crit = Math.random() < 0.0625 ? 1.5 : 1;
+  const roll = 0.85 + Math.random()*0.15;
+  const base = ((2*50/5+2) * power * att.atk/def.def)/50 + 2;
+  return { miss:false, e, crit:crit>1, amount: Math.max(1, Math.floor(base*stab*e*crit*roll)) };
+}
+const $ = id => document.getElementById(id);
+function show(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); $(id).classList.add('active'); }
+
+// ============================================================ team select
+let picked = [];
+const rosterDiv = $('roster');
+for (const name in DEX){
+  const c = document.createElement('div');
+  c.className = 'mon-card';
+  c.innerHTML = `<div class="spr">${DEX[name].s}</div><div class="nm">${name.toUpperCase()}</div><div class="tp">${DEX[name].t.join('/')}</div>`;
+  c.onclick = () => {
+    if (picked.includes(name)) picked = picked.filter(n=>n!==name);
+    else if (picked.length < 6) picked.push(name);
+    c.classList.toggle('picked', picked.includes(name));
+    $('pickCount').textContent = `${picked.length} / 6 picked`;
+    $('fightBtn').disabled = picked.length !== 6;
+  };
+  rosterDiv.appendChild(c);
+}
+
+// ============================================================ battle state
+let me=[], en=[], myIdx=0, enIdx=0, busy=false;
+const queue = [];
+let pumping = false;
+function say(text){ return new Promise(res => queue.push({text,res})); }
+function pump(){
+  if (pumping || !queue.length) return;
+  pumping = true;
+  const {text,res} = queue.shift();
+  $('msg').textContent = text;
+  setTimeout(()=>{ pumping = false; res(); pump(); }, 950);
+}
+function narrate(t){ const p = say(t); pump(); return p; }
+
+function startBattle(){
+  me = picked.map(mkMon);
+  en = CLAUDE_TEAM.map(mkMon);
+  myIdx=0; enIdx=0;
+  show('battle');
+  syncUI();
+  narrate(`Trainer CLAUDE sent out ${en[0].name.toUpperCase()}!`);
+  narrate(`Go! ${me[0].name.toUpperCase()}!`).then(showMenu);
+}
+
+function syncUI(){
+  const M = me[myIdx], E = en[enIdx];
+  $('sprMe').textContent = M.spr; $('sprEnemy').textContent = E.spr;
+  $('myName').textContent = M.name.toUpperCase(); $('enName').textContent = E.name.toUpperCase();
+  setHp('myHp', M); setHp('enHp', E);
+  $('myHpText').textContent = `${Math.max(0,M.hp)}/${M.maxHp}`;
+  $('myBalls').textContent = me.map(p=>p.hp>0?'●':'○').join(' ');
+  $('enBalls').textContent = en.map(p=>p.hp>0?'●':'○').join(' ');
+}
+function setHp(id, mon){
+  const pct = Math.max(0, mon.hp/mon.maxHp*100);
+  const el = $(id); el.style.width = pct+'%';
+  el.style.background = pct>50?'#30c030':pct>20?'#e8b830':'#e83030';
+}
+
+function showMenu(){
+  busy=false;
+  const M = me[myIdx], menu = $('menu');
+  menu.innerHTML='';
+  M.moves.forEach(mv=>{
+    const [t,p] = MOVES[mv];
+    const b = document.createElement('button');
+    b.className='mbtn'; b.innerHTML = `${mv.toUpperCase()}<small>${t} · ${p} PW</small>`;
+    b.onclick = ()=>{ if(!busy) turn(mv); };
+    menu.appendChild(b);
+  });
+  const sw = document.createElement('button');
+  sw.className='mbtn'; sw.style.gridColumn='1 / 3'; sw.textContent='⇄ SWITCH POKeMON';
+  sw.onclick = ()=>{ if(!busy) switchMenu(false); };
+  menu.appendChild(sw);
+  $('msg').textContent = `What will ${M.name.toUpperCase()} do?`;
+}
+
+function switchMenu(forced){
+  const menu = $('menu'); menu.innerHTML='';
+  me.forEach((p,i)=>{
+    if (p.hp<=0 || i===myIdx) return;
+    const b = document.createElement('button');
+    b.className='mbtn'; b.innerHTML=`${p.spr} ${p.name.toUpperCase()}<small>${p.hp}/${p.maxHp} HP</small>`;
+    b.onclick = async ()=>{
+      busy=true; menu.innerHTML='';
+      myIdx=i; syncUI();
+      await narrate(`Go! ${p.name.toUpperCase()}!`);
+      if (forced) showMenu();
+      else { await enemyAttack(); afterTurn(); }
+    };
+    menu.appendChild(b);
+  });
+  if (!forced){
+    const back = document.createElement('button');
+    back.className='mbtn'; back.style.gridColumn='1 / 3'; back.textContent='← BACK';
+    back.onclick = showMenu;
+    menu.appendChild(back);
+  }
+}
+
+// ---- Claude AI v2: damage estimation, guaranteed-KO detection, smart switching ----
+function estDmg(att, def, mv){
+  const [t,p,acc] = MOVES[mv];
+  const stab = att.types.includes(t)?1.5:1;
+  const base = ((2*50/5+2)*p*att.atk/def.def)/50+2;
+  const real = base*stab*eff(t,def.types);
+  return { exp: real*(acc/100), min: real*0.85, acc };
+}
+function bestMove(att, def){
+  let best=att.moves[0], bestExp=-1;
+  for (const mv of att.moves){
+    const d = estDmg(att,def,mv);
+    if (d.exp>bestExp){ bestExp=d.exp; best=mv; }
+  }
+  return { mv:best, exp:bestExp };
+}
+// Matchup score: HP fraction dealt per turn minus fraction taken, speed nudge.
+function matchup(mine, theirs){
+  const give = bestMove(mine,theirs).exp / theirs.maxHp;
+  const take = bestMove(theirs,mine).exp / mine.maxHp;
+  return give - take + (mine.spe>theirs.spe ? 0.08 : -0.08);
+}
+// Attack choice: take a reliable kill (prefer priority when it kills), else max damage.
+function aiBestAttack(){
+  const E = en[enIdx], M = me[myIdx];
+  const killers = E.moves.filter(mv => { const d=estDmg(E,M,mv); return d.min>=M.hp && d.acc>=85; });
+  if (killers.length){
+    killers.sort((a,b)=> (MOVES[b][3]-MOVES[a][3]) || (MOVES[b][2]-MOVES[a][2]));
+    return killers[0];
+  }
+  return bestMove(E,M).mv;
+}
+let enSwitchedLast = false;
+function aiAction(){
+  const E = en[enIdx], M = me[myIdx];
+  const killers = E.moves.filter(mv => { const d=estDmg(E,M,mv); return d.min>=M.hp && d.acc>=85; });
+  if (killers.length){ enSwitchedLast=false; return { move: aiBestAttack() }; }
+  // Bail out of clearly losing matchups (but never twice in a row).
+  if (!enSwitchedLast){
+    const cur = matchup(E,M);
+    let idx=-1, best=cur;
+    en.forEach((p,i)=>{ if(p.hp>0 && i!==enIdx){ const s=matchup(p,M); if (s>best+0.35){ best=s; idx=i; } }});
+    if (idx>=0 && cur<-0.1){ enSwitchedLast=true; return { switch: idx }; }
+  }
+  enSwitchedLast=false;
+  return { move: aiBestAttack() };
+}
+
+async function doMove(att, def, mv, isMe){
+  await narrate(`${att.name.toUpperCase()} used ${mv.toUpperCase()}!`);
+  const r = dmg(att, def, mv);
+  if (r.miss){ await narrate("But it missed!"); return; }
+  if (r.e===0){ await narrate(`It doesn't affect ${def.name.toUpperCase()}...`); return; }
+  def.hp -= r.amount;
+  $(isMe ? 'sprEnemy' : 'sprMe').classList.add(isMe?'shake':'shakeMe');
+  setTimeout(()=>{ $('sprEnemy').classList.remove('shake'); $('sprMe').classList.remove('shakeMe'); }, 400);
+  syncUI();
+  if (r.crit) await narrate("A critical hit!");
+  if (r.e>1) await narrate("It's super effective!");
+  if (r.e<1) await narrate("It's not very effective...");
+}
+
+async function turn(mv){
+  busy=true; $('menu').innerHTML='';
+  const M = me[myIdx];
+  const act = aiAction();
+  if (act.switch !== undefined){
+    const old = en[enIdx].name.toUpperCase();
+    enIdx = act.switch; syncUI();
+    await narrate(`CLAUDE withdrew ${old}!`);
+    await narrate(`CLAUDE sent out ${en[enIdx].name.toUpperCase()}!`);
+    const E2 = en[enIdx];
+    await doMove(M, E2, mv, true);
+    if (E2.hp<=0){ await faint(E2,false); if (battleOver()) return; }
+    afterTurn(); return;
+  }
+  const E = en[enIdx];
+  const eMv = act.move;
+  const myPrio = MOVES[mv][3], enPrio = MOVES[eMv][3];
+  const meFirst = myPrio!==enPrio ? myPrio>enPrio : (M.spe===E.spe ? Math.random()<.5 : M.spe>E.spe);
+  const order = meFirst ? [[M,E,mv,true],[E,M,eMv,false]] : [[E,M,eMv,false],[M,E,mv,true]];
+  for (const [a,d,m,isMe] of order){
+    if (a.hp<=0) continue;
+    await doMove(a,d,m,isMe);
+    if (d.hp<=0){ await faint(d, !isMe); if (battleOver()) return; }
+  }
+  afterTurn();
+}
+async function enemyAttack(){
+  const E = en[enIdx], M = me[myIdx];
+  await doMove(E, M, aiBestAttack(), false);
+  if (M.hp<=0){ await faint(M, true); }
+}
+function afterTurn(){
+  if (battleOver()) return;
+  if (me[myIdx].hp<=0){ switchMenu(true); return; }
+  showMenu();
+}
+
+async function faint(mon, mine){
+  $(mine?'sprMe':'sprEnemy').style.opacity = 0;
+  await narrate(`${mon.name.toUpperCase()} fainted!`);
+  if (battleOver()) return;
+  if (mine){
+    switchMenu(true);
+    $('msg').textContent = "Choose your next POKeMON!";
+    $(mine?'sprMe':'sprEnemy').style.opacity = 1;
+  } else {
+    // Smart replacement: send the bench mon with the best matchup, not the next in line.
+    let next=-1, best=-Infinity;
+    en.forEach((p,i)=>{ if (p.hp>0){ const s = matchup(p, me[myIdx]); if (s>best){ best=s; next=i; } }});
+    enIdx = next; syncUI();
+    $('sprEnemy').style.opacity = 1;
+    await narrate(`Trainer CLAUDE sent out ${en[next].name.toUpperCase()}!`);
+  }
+}
+
+function battleOver(){
+  const meDead = me.every(p=>p.hp<=0), enDead = en.every(p=>p.hp<=0);
+  if (!meDead && !enDead) return false;
+  setTimeout(()=>{
+    show('result');
+    if (enDead){
+      $('resultText').textContent = "YOU WIN! 🏆";
+      $('resultSub').innerHTML = "You defeated Trainer CLAUDE!<br>The ragebait... failed. I'm proud of you.";
+    } else {
+      $('resultText').textContent = "YOU LOST!";
+      $('resultSub').innerHTML = "Trainer CLAUDE wins!<br>You blacked out and woke up next to a benchmark table.";
+    }
+  }, 800);
+  return true;
+}
+</script>
+</body>
+</html>
