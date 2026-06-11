@@ -1,5 +1,10 @@
 # POKeMON INDIA — Claude Edition
 
+> 📖 **[DOCUMENTATION.md](DOCUMENTATION.md)** — the master manual: how to
+> play, how it's made, running, testing, deployment, troubleshooting.
+> 🧠 **[CONTEXT.md](CONTEXT.md)** — full development context for contributors.
+> 🎮 **Play now (single-player):** https://sv-1411.github.io/pokemon/
+
 An open-world 3D Pokémon game in the browser. The map is a stylized 3D India —
 the Himalaya in the north, the Thar desert in the west, the Western Ghats,
 southern forests, eastern jungles and 7,000 km of coastline — with **all 898
