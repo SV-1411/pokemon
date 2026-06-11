@@ -22,6 +22,7 @@ import {
 } from './ui.js';
 import { newSave, loadSave, persist } from './save.js';
 import { Net } from './net.js';
+import { SFX } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -196,6 +197,7 @@ function beginGame() {
   mode = 'world';
   console.log('[boot] game running');
   window.__game = { atmosphere, player, save, world, net }; // debug/e2e handle
+  SFX.bgm('world');
   toast(`Welcome to INDIA, ${save.name}! Wild Pokémon await.`);
   window.__test_battle = async () => {
     if (mode !== 'world') return;
@@ -260,6 +262,7 @@ function bindKeys() {
     }
     if (e.code === 'Escape') closeModals();
     if (e.code === 'KeyE') interact();
+    if (e.code === 'KeyN') toast(SFX.toggle() ? '🔊 Sound on' : '🔇 Sound off');
     if (e.code === 'KeyY' && pendingChallenge) {
       net.accept(pendingChallenge.from, serializeTeam(save.party));
       toast(`Accepted ${pendingChallenge.name}'s challenge!`);
@@ -279,9 +282,10 @@ function reconcileRemotePlayers(dt) {
     let rm = remoteMeshes.get(id);
     if (!rm) {
       const group = buildTrainer();
-      const blue = group.children[2].material.clone();
-      blue.color.set(0x4878e8); // blue shirt = other trainers
-      for (const i of [2, 3, 4]) group.children[i].material = blue; // torso + arms
+      // recolor jacket + cap so other trainers read as rivals (orange)
+      const rival = group.userData.tintParts[0].material.clone();
+      rival.color.set(0xd97730);
+      for (const part of group.userData.tintParts) part.material = rival;
       const label = makeLabel(rp.name, '#8fd0ff', 18);
       label.position.y = 9;
       group.add(label);
@@ -302,6 +306,8 @@ function reconcileRemotePlayers(dt) {
     ud.walkT = (ud.walkT ?? 0) + dt * (movedDist > 0.3 ? 9 : 0);
     ud.legL.rotation.x = Math.sin(ud.walkT) * 0.7;
     ud.legR.rotation.x = -Math.sin(ud.walkT) * 0.7;
+    ud.armL.rotation.x = -Math.sin(ud.walkT) * 0.55;
+    ud.armR.rotation.x = Math.sin(ud.walkT) * 0.55;
   }
   for (const [id, rm] of remoteMeshes) {
     if (!net.remotePlayers.has(id)) {
@@ -390,6 +396,7 @@ async function interact() {
     save.balls.ultra = Math.max(save.balls.ultra, 2);
     refreshPartyBar();
     persist(save);
+    SFX.heal();
     toast(`Party healed at ${nearPokecenter.name} Pokécenter! Balls restocked.`);
   }
 }

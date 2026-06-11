@@ -1,7 +1,9 @@
 // PvP battle screen: same GBA overlay as battle.js, but every outcome comes
 // from the server's event stream — this module only sends actions and renders.
 import { MOVES, sprFront, sprBack, moveName, TYPE_COLORS } from './data.js';
-import { paintBattleBg, animate } from './battle.js';
+import { paintBattleBg, animate, setSpriteImg } from './battle.js';
+import { showdownUrl } from './anim-sprites.js';
+import { SFX } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -50,13 +52,11 @@ function syncBars() {
 }
 function setSprites() {
   const M = S.team[S.myIdx], O = S.opp;
-  const ei = $('sprEnemy').querySelector('img');
-  ei.onerror = null;
-  ei.src = sprFront(O.id, O.shiny);
+  setSpriteImg($('sprEnemy').querySelector('img'),
+    [showdownUrl(O.id, { shiny: O.shiny }), sprFront(O.id, O.shiny)]);
   $('sprEnemy').style.opacity = O.hp > 0 ? 1 : 0;
-  const mi = $('sprMe').querySelector('img');
-  mi.onerror = () => { mi.onerror = null; mi.src = sprFront(M.id, M.shiny); };
-  mi.src = sprBack(M.id, M.shiny);
+  setSpriteImg($('sprMe').querySelector('img'),
+    [showdownUrl(M.id, { back: true, shiny: M.shiny }), sprBack(M.id, M.shiny), sprFront(M.id, M.shiny)]);
   $('sprMe').style.opacity = M.hp > 0 ? 1 : 0;
 }
 function flash(id) {
@@ -127,6 +127,7 @@ async function processEvents(events) {
         } else {
           S.opp = ev.mon;
           setSprites(); syncBars();
+          SFX.cry(ev.mon.id);
           await say(`${S.oppName} sent out ${ev.mon.name.toUpperCase()}!`);
         }
         break;
@@ -145,6 +146,7 @@ async function processEvents(events) {
         if (mineHit) S.team[S.myIdx].hp = ev.hp; else S.opp.hp = ev.hp;
         flash(mineHit ? 'sprMe' : 'sprEnemy');
         animate($('bframe'), 'hit-shake', 420);
+        SFX.hit(ev.eff);
         syncBars();
         if (ev.crit) await say('A critical hit!');
         if (ev.eff >= 2) await say("It's super effective!");
@@ -155,6 +157,7 @@ async function processEvents(events) {
         const mine = ev.side === S.side;
         if (mine) { S.team[S.myIdx].hp = 0; $('sprMe').style.opacity = 0; }
         else { S.opp.hp = 0; $('sprEnemy').style.opacity = 0; }
+        SFX.faint();
         syncBars();
         await say(`${(mine ? S.team[S.myIdx] : S.opp).name.toUpperCase()} fainted!`);
         break;
@@ -196,6 +199,7 @@ export function startPvpBattle(net, start) {
     net.onBattleEnd = (msg) => {
       chain.p = chain.p.then(async () => {
         S.over = true;
+        SFX.bgm('world');
         clearMenu();
         await say(msg.youWon
           ? `You defeated ${S.oppName}!${msg.reason === 'disconnect' ? ' (opponent fled)' : ''}`
@@ -214,7 +218,10 @@ export function startPvpBattle(net, start) {
     setSprites(); syncBars();
     animate($('sprMe'), 'enter-me', 600);
     animate($('sprEnemy'), 'enter-en', 600);
+    SFX.encounter();
+    SFX.bgm('battle');
     await say(`TRAINER ${S.oppName} wants to battle!`);
+    SFX.cry(S.opp.id);
     await say(`${S.oppName} sent out ${S.opp.name.toUpperCase()}!`);
     await say(`Go! ${S.team[0].name.toUpperCase()}!`);
     mainMenu();

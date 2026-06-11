@@ -11,7 +11,7 @@ const browser = await puppeteer.launch({
 const page = await browser.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
-await page.goto('http://localhost:8123/index.html?autotest', { waitUntil: 'load', timeout: 60000 });
+await page.goto('http://localhost:8128/index.html?autotest', { waitUntil: 'load', timeout: 60000 });
 await sleep(2500);
 
 await page.keyboard.press('x');

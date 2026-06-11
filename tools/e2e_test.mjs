@@ -4,7 +4,7 @@
 import puppeteer from 'puppeteer-core';
 
 const EDGE = process.env.EDGE ?? 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
-const URL = 'http://localhost:8123/index.html?autotest&battletest';
+const URL = 'http://localhost:8128/index.html?autotest&battletest';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({

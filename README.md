@@ -55,8 +55,21 @@ detects there's no server and runs offline.
 - **All 898 Pokémon, real data**: base stats, types, catch rates, gender
   ratios, level-up learnsets, evolution levels and dex entries baked from
   [PokéAPI](https://pokeapi.co) (the same game data Bulbapedia documents).
-  Official sprites: pixel sprites as overworld billboards and battle
-  front/back sprites, official artwork in the dex.
+- **Fully animated Pokémon**: the official animated battle sprites
+  (Showdown set) play everywhere — overworld creatures breathe, bounce and
+  flap (decoded to 3D textures via WebCodecs), battles use animated
+  front/back sprites, and the dex shows the animated form. Wild Pokémon
+  hop while walking, lean into a sprint, startle-jump when they notice
+  you, and doze at night.
+- **Sound**: every species' **official cry** plays on battle entry and in
+  the Pokédex (PokéAPI cries archive), plus a full synthesized SFX kit
+  (hits, super-effective slams, faints, ball throws/shakes/catch clicks,
+  level-up and heal jingles) and generated chiptune background music with
+  separate overworld and battle themes. Toggle with **N**.
+- **Anime-style world**: the trainer is a cap-and-jacket protagonist with
+  black hair, cheek marks, gloves and a backpack, arms swinging as he
+  runs; cities have the dome-roofed red **Pokécenter** from the show and a
+  blue-roofed **Poké Mart**.
 - **Biome spawning**: water types on the coasts, ice/dragon/rock in the
   Himalaya, ground/fire in the Thar, bug/poison/grass in the forests,
   ghost/dark in the eastern jungle, electric/psychic/steel in cities. Rarity

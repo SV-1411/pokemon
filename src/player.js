@@ -60,10 +60,13 @@ export class Player {
     this.pos.y = heightAt(this.pos.x, this.pos.z);
     this.mesh.position.copy(this.pos);
     this.mesh.rotation.y = this.heading;
-    // walk bob on the legs
+    // walk cycle: legs stride, arms counter-swing
     const t = this.walkT ?? 0;
-    this.mesh.userData.legL.rotation.x = Math.sin(t) * 0.7;
-    this.mesh.userData.legR.rotation.x = -Math.sin(t) * 0.7;
+    const ud = this.mesh.userData;
+    ud.legL.rotation.x = Math.sin(t) * 0.7;
+    ud.legR.rotation.x = -Math.sin(t) * 0.7;
+    ud.armL.rotation.x = -Math.sin(t) * 0.55;
+    ud.armR.rotation.x = Math.sin(t) * 0.55;
 
     // camera orbit
     const cx = this.pos.x - Math.sin(this.camYaw) * Math.cos(this.camPitch) * this.camDist;
@@ -75,28 +78,104 @@ export class Player {
   }
 }
 
+// Anime-protagonist trainer: red/white cap over black hair, blue jacket with
+// white sleeves, green gloves, jeans, sneakers, backpack — and a drawn face
+// with the trademark cheek marks.
+function faceTexture() {
+  const cv = document.createElement('canvas');
+  cv.width = 64; cv.height = 64;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#e8b88a'; g.fillRect(0, 0, 64, 64);          // skin
+  g.fillStyle = '#1a1a1a';                                     // hair fringe spikes
+  g.beginPath(); g.moveTo(0, 0); g.lineTo(64, 0); g.lineTo(64, 12);
+  for (let x = 64; x >= 0; x -= 10) { g.lineTo(x - 5, 22); g.lineTo(x - 10, 12); }
+  g.closePath(); g.fill();
+  g.fillStyle = '#fff'; g.fillRect(13, 28, 12, 9); g.fillRect(39, 28, 12, 9);   // eyes
+  g.fillStyle = '#3a2a1a'; g.fillRect(17, 30, 6, 7); g.fillRect(43, 30, 6, 7);
+  g.strokeStyle = '#1a1a1a'; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(12, 26); g.lineTo(26, 24); g.stroke();                // brows
+  g.beginPath(); g.moveTo(38, 24); g.lineTo(52, 26); g.stroke();
+  g.strokeStyle = '#b06030'; g.lineWidth = 2;                                   // cheek marks
+  for (const cx of [8, 50]) {
+    g.beginPath(); g.moveTo(cx, 42); g.lineTo(cx + 6, 44); g.moveTo(cx, 46); g.lineTo(cx + 6, 48); g.stroke();
+  }
+  g.strokeStyle = '#7a4a2a'; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(26, 54); g.quadraticCurveTo(32, 58, 38, 54); g.stroke(); // smile
+  const t = new THREE.CanvasTexture(cv);
+  t.magFilter = THREE.NearestFilter;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+let FACE_TEX = null;
+
 export function buildTrainer() {
   const g = new THREE.Group();
-  const skin = new THREE.MeshLambertMaterial({ color: 0xc89878 });
-  const shirt = new THREE.MeshLambertMaterial({ color: 0xe84848 });
-  const pants = new THREE.MeshLambertMaterial({ color: 0x3858a8 });
-  const capM = new THREE.MeshLambertMaterial({ color: 0xe84848 });
+  const skin = new THREE.MeshLambertMaterial({ color: 0xe8b88a });
+  const jacket = new THREE.MeshLambertMaterial({ color: 0x2356c8 });
+  const sleeve = new THREE.MeshLambertMaterial({ color: 0xf2f2f0 });
+  const glove = new THREE.MeshLambertMaterial({ color: 0x2e8a4a });
+  const jeans = new THREE.MeshLambertMaterial({ color: 0x3a5a9a });
+  const shoe = new THREE.MeshLambertMaterial({ color: 0x303038 });
+  const capRed = new THREE.MeshLambertMaterial({ color: 0xd83838 });
+  const capWhite = new THREE.MeshLambertMaterial({ color: 0xf5f5f0 });
+  const hair = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
 
-  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.9, 2.4, 0.9), pants);
-  legL.position.set(-0.55, 1.2, 0); legL.geometry.translate(0, -1.2, 0); legL.position.y = 2.4;
-  const legR = legL.clone(); legR.position.x = 0.55;
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.6, 1.2), shirt);
-  torso.position.y = 3.7;
-  const armL = new THREE.Mesh(new THREE.BoxGeometry(0.6, 2.2, 0.6), shirt);
-  armL.position.set(-1.45, 3.8, 0);
-  const armR = armL.clone(); armR.position.x = 1.45;
-  const head = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), skin);
-  head.position.y = 5.8;
-  const cap = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 1.7), capM);
-  cap.position.y = 6.6;
-  const brim = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.18, 0.9), capM);
-  brim.position.set(0, 6.45, 1.05);
-  g.add(legL, legR, torso, armL, armR, head, cap, brim);
-  g.userData = { legL, legR };
+  // legs (pivot at hip) with sneakers
+  const legL = new THREE.Group();
+  const thigh = new THREE.Mesh(new THREE.BoxGeometry(0.85, 2.1, 0.85), jeans);
+  thigh.position.y = -1.05;
+  const foot = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 1.3), shoe);
+  foot.position.set(0, -2.25, 0.2);
+  legL.add(thigh, foot);
+  legL.position.set(-0.55, 2.5, 0);
+  const legR = legL.clone(true);
+  legR.position.x = 0.55;
+
+  // torso: jacket with white center zip + collar
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.5, 1.2), jacket);
+  torso.position.y = 3.75;
+  const zip = new THREE.Mesh(new THREE.BoxGeometry(0.45, 2.5, 0.08), sleeve);
+  zip.position.set(0, 3.75, 0.64);
+  const collar = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.35, 1.3), sleeve);
+  collar.position.y = 4.95;
+
+  // arms (pivot at shoulder): white sleeves, green gloved hands
+  const armL = new THREE.Group();
+  const sleeveL = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.9, 0.6), sleeve);
+  sleeveL.position.y = -0.95;
+  const handL = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.55), glove);
+  handL.position.y = -2.1;
+  armL.add(sleeveL, handL);
+  armL.position.set(-1.45, 4.8, 0);
+  const armR = armL.clone(true);
+  armR.position.x = 1.45;
+
+  // head with drawn face, hair at the back/sides, cap
+  if (!FACE_TEX) FACE_TEX = faceTexture();
+  const faceMat = new THREE.MeshLambertMaterial({ map: FACE_TEX });
+  const head = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5),
+    [skin, skin, skin, skin, faceMat, hair]); // +z face, -z hair
+  head.position.y = 5.85;
+  const hairBack = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.9, 0.5), hair);
+  hairBack.position.set(0, 5.7, -0.75);
+  const sideburnL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.8, 0.5), hair);
+  sideburnL.position.set(-0.8, 5.7, 0.3);
+  const sideburnR = sideburnL.clone();
+  sideburnR.position.x = 0.8;
+  const capTop = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.55, 1.75), capRed);
+  capTop.position.y = 6.75;
+  const capFront = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.5, 0.16), capWhite);
+  capFront.position.set(0, 6.72, 0.86);
+  const brim = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.16, 1.0), capRed);
+  brim.position.set(0, 6.5, 1.2);
+
+  // backpack
+  const pack = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.7, 0.7), glove);
+  pack.position.set(0, 3.9, -0.95);
+
+  g.add(legL, legR, torso, zip, collar, armL, armR, head,
+    hairBack, sideburnL, sideburnR, capTop, capFront, brim, pack);
+  for (const m of g.children) m.castShadow = true;
+  g.userData = { legL, legR, armL, armR, tintParts: [torso, capTop, brim] };
   return g;
 }

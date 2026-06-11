@@ -1,10 +1,8 @@
 // Your lead Pokémon walks behind you (HGSS style) and emotes based on
 // friendship, weather and time. Walking together slowly raises friendship.
 import * as THREE from 'three';
-import { sprFront } from './data.js';
 import { heightAt } from './world.js';
-
-const loader = new THREE.TextureLoader();
+import { AnimMonSprite } from './anim-sprites.js';
 
 function emoteSprite(text) {
   const cv = document.createElement('canvas');
@@ -20,6 +18,7 @@ function emoteSprite(text) {
 export class Follower {
   constructor(scene) {
     this.scene = scene;
+    this.anim = null;
     this.sprite = new THREE.Sprite(new THREE.SpriteMaterial({ depthTest: true }));
     this.sprite.visible = false;
     scene.add(this.sprite);
@@ -39,20 +38,20 @@ export class Follower {
     if (key === this.monKey) { this.mon = mon; return; }
     this.monKey = key;
     this.mon = mon;
-    if (!mon) { this.sprite.visible = false; return; }
-    const tex = loader.load(sprFront(mon.id, mon.shiny));
-    tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
-    tex.colorSpace = THREE.SRGBColorSpace;
-    this.sprite.material.map = tex;
-    this.sprite.material.needsUpdate = true;
-    const sc = 5.5;
-    this.sprite.scale.set(sc, sc, 1);
-    this.sprite.visible = true;
+    const oldPos = this.sprite.position.clone();
+    this.anim?.dispose();
+    this.scene.remove(this.sprite);
+    if (!mon) { this.sprite = new THREE.Sprite(); this.sprite.visible = false; return; }
+    this.anim = new AnimMonSprite(mon.id, mon.shiny, 5.5);
+    this.sprite = this.anim.sprite;
+    this.sprite.position.copy(oldPos);
+    this.scene.add(this.sprite);
   }
 
   update(dt, player, atmosphere, moved) {
-    if (!this.mon || !this.sprite.visible) return;
+    if (!this.mon || !this.anim) return;
     this.t += dt;
+    this.anim.update(dt);
     // trail 6 units behind the player's heading
     const tx = player.pos.x - Math.sin(player.heading) * 6;
     const tz = player.pos.z - Math.cos(player.heading) * 6;

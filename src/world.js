@@ -884,19 +884,56 @@ function buildCity(scene, c, lampMats, windowMats, lowSpec) {
     hd.rotation.y = -a;
     g.add(hd);
   }
-  // Pokécenter on the plaza
+  // anime-style Pokécenter: white rounded body under a red dome, glass front,
+  // big P sign — the building from the show
   const pc = new THREE.Group();
-  const base = new THREE.Mesh(new THREE.BoxGeometry(7, 4.6, 7),
-    new THREE.MeshLambertMaterial({ color: 0xf2f0ea }));
-  base.position.y = 2.3; base.castShadow = sh;
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(6.4, 3.4, 4),
-    new THREE.MeshLambertMaterial({ color: 0xe84848 }));
-  roof.position.y = 6.3; roof.rotation.y = Math.PI / 4; roof.castShadow = sh;
-  const pcSign = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 0.8),
-    new THREE.MeshLambertMaterial({ map: signTexture('POKéCENTER', '#c4392f') }));
-  pcSign.position.set(0, 3.6, 3.56);
-  pc.add(base, roof, pcSign);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(5, 5.4, 3.6, 18),
+    new THREE.MeshLambertMaterial({ color: 0xf5f2ec }));
+  body.position.y = 1.8; body.castShadow = sh;
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(5.2, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+    new THREE.MeshLambertMaterial({ color: 0xe04040 }));
+  dome.position.y = 3.6; dome.castShadow = sh;
+  const domeCap = new THREE.Mesh(new THREE.SphereGeometry(0.7, 10, 8),
+    new THREE.MeshLambertMaterial({ color: 0xf5f2ec }));
+  domeCap.position.y = 8.6;
+  const porch = new THREE.Mesh(new THREE.BoxGeometry(5.4, 3, 2.2),
+    new THREE.MeshLambertMaterial({ color: 0xf5f2ec }));
+  porch.position.set(0, 1.5, 5); porch.castShadow = sh;
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(3.6, 2.3, 0.15),
+    new THREE.MeshLambertMaterial({ color: 0x8ad0e8, emissive: 0x2a5868, emissiveIntensity: 0.4 }));
+  glass.position.set(0, 1.35, 6.12);
+  // round "P" sign above the doors
+  const pcv = document.createElement('canvas');
+  pcv.width = 64; pcv.height = 64;
+  const pg = pcv.getContext('2d');
+  pg.fillStyle = '#e04040'; pg.beginPath(); pg.arc(32, 32, 30, 0, 7); pg.fill();
+  pg.fillStyle = '#fff'; pg.font = 'bold 42px Courier New';
+  pg.textAlign = 'center'; pg.textBaseline = 'middle'; pg.fillText('P', 32, 34);
+  const pTex = new THREE.CanvasTexture(pcv);
+  pTex.colorSpace = THREE.SRGBColorSpace;
+  const pSign = new THREE.Mesh(new THREE.CircleGeometry(0.9, 20),
+    new THREE.MeshLambertMaterial({ map: pTex, emissive: 0x803030, emissiveMap: pTex, emissiveIntensity: 0.5 }));
+  pSign.position.set(0, 3.55, 6.13);
+  pc.add(body, dome, domeCap, porch, glass, pSign);
   g.add(pc);
+  // Poké Mart: cream box with the flat blue roof + sign
+  const mart = new THREE.Group();
+  const martBase = new THREE.Mesh(new THREE.BoxGeometry(6.5, 3.6, 5),
+    new THREE.MeshLambertMaterial({ color: 0xf0ead8 }));
+  martBase.position.y = 1.8; martBase.castShadow = sh;
+  const martRoof = new THREE.Mesh(new THREE.BoxGeometry(7.3, 0.7, 5.8),
+    new THREE.MeshLambertMaterial({ color: 0x2a6ad8 }));
+  martRoof.position.y = 3.95; martRoof.castShadow = sh;
+  const martSign = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 1),
+    new THREE.MeshLambertMaterial({ map: signTexture('POKé MART', '#2a6ad8') }));
+  martSign.position.set(0, 2.9, 2.56);
+  const martGlass = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.6, 0.12),
+    new THREE.MeshLambertMaterial({ color: 0x8ad0e8 }));
+  martGlass.position.set(-0.6, 1.2, 2.52);
+  mart.add(martBase, martRoof, martSign, martGlass);
+  mart.position.set(-13.5, 0, -13.5);
+  mart.rotation.y = Math.PI / 4;
+  g.add(mart);
   const lbl = makeLabel(c.name, '#ffd34d');
   lbl.position.y = 26;
   g.add(lbl);

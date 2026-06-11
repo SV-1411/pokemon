@@ -3,6 +3,8 @@ import {
   DEX, sprFront, sprArt, displayName, TYPE_COLORS, MOVES, moveName,
   expForLevel, NATURES, rarityOf,
 } from './data.js';
+import { showdownUrl } from './anim-sprites.js';
+import { SFX } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 let S = null; // save ref
@@ -92,11 +94,14 @@ function showDexDetail(sp) {
       <h3 style="text-align:center">??? — Not yet seen</h3>`;
     return;
   }
+  SFX.cry(sp.id); // the dex plays each Pokémon's official cry
   const genderTxt = sp.gr === -1 ? 'Genderless'
     : `♀ ${(sp.gr / 8 * 100).toFixed(1)}% / ♂ ${((8 - sp.gr) / 8 * 100).toFixed(1)}%`;
   const fullHpPct = Math.min(100, (sp.cr / 3 / 255) * 100);
   d.innerHTML = `
     <img src="${sprArt(sp.id)}">
+    <div style="text-align:center"><img src="${showdownUrl(sp.id)}"
+      onerror="this.style.display='none'" style="width:64px;height:64px;object-fit:contain"></div>
     <h3 style="text-align:center">#${sp.id} ${displayName(sp).toUpperCase()}
       ${S.caught[sp.id - 1] ? '<span style="color:#e84848">●</span>' : ''}</h3>
     <div style="text-align:center;margin:4px 0">${sp.types.map(typeTag).join('')}</div>

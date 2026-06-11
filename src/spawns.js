@@ -3,8 +3,9 @@
 // with temperament AI — aggressive species chase you, timid ones flee, some
 // sleep at night — plus tall-grass clustering and fixed legendary landmarks.
 import * as THREE from 'three';
-import { DEX, byName, makeMon, sprFront } from './data.js';
+import { DEX, byName, makeMon } from './data.js';
 import { biomeAt, heightAt, isLand, nearCity, LANDMARKS, CITY_R, TALL_GRASS } from './world.js';
+import { AnimMonSprite } from './anim-sprites.js';
 
 const BIOME_TYPES = {
   coast: ['water'],
@@ -23,19 +24,6 @@ export function temperament(sp) {
   if (sp.bs.atk >= 100 || (sp.bs.atk >= 85 && sp.types.some((t) => ['dark', 'fighting', 'dragon'].includes(t)))) return 'aggressive';
   if (sp.bs.spe >= 90 && sp.bs.def < 70) return 'timid';
   return 'calm';
-}
-
-const texLoader = new THREE.TextureLoader();
-const texCache = new Map();
-function spriteTexture(id, shiny) {
-  const key = `${id}_${shiny ? 1 : 0}`;
-  if (!texCache.has(key)) {
-    const t = texLoader.load(sprFront(id, shiny));
-    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
-    t.colorSpace = THREE.SRGBColorSpace;
-    texCache.set(key, t);
-  }
-  return texCache.get(key);
 }
 
 export class Spawns {
@@ -65,13 +53,12 @@ export class Spawns {
     const sp = byName[l.species];
     if (!sp) return;
     const mon = makeMon(sp.id, l.lvl);
-    const spr = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: spriteTexture(sp.id, mon.shiny), depthTest: true,
-    }));
-    spr.scale.set(13, 13, 1);
-    spr.position.set(l.x, l.y + 8, l.z);
-    this.scene.add(spr);
-    this.landmarkMons.set(l.species, { mon, sprite: spr, landmark: l, legendary: true });
+    const anim = new AnimMonSprite(sp.id, mon.shiny, 13);
+    anim.sprite.position.set(l.x, l.y + 8, l.z);
+    this.scene.add(anim.sprite);
+    this.landmarkMons.set(l.species, {
+      mon, sprite: anim.sprite, anim, landmark: l, legendary: true, t: 0,
+    });
   }
 
   // Weighted pick honoring weather/night multipliers from the atmosphere.
@@ -103,6 +90,7 @@ export class Spawns {
     for (let i = this.active.length - 1; i >= 0; i--) {
       const s = this.active[i];
       if (Math.hypot(s.sprite.position.x - px, s.sprite.position.z - pz) > 180) {
+        s.anim?.dispose();
         this.scene.remove(s.sprite);
         this.active.splice(i, 1);
       }
@@ -129,16 +117,13 @@ export class Spawns {
           const id = this.pickFromPool(biome, atmosphere);
           if (id) {
             const mon = makeMon(id, this.levelFor(x, z, startX, startZ));
-            const spr = new THREE.Sprite(new THREE.SpriteMaterial({
-              map: spriteTexture(id, mon.shiny), depthTest: true,
-            }));
             const sc = 6.5 + Math.min(3, DEX[id - 1].bs.hp / 60);
-            spr.scale.set(sc, sc, 1);
-            spr.position.set(x, heightAt(x, z) + sc * 0.45, z);
-            this.scene.add(spr);
+            const anim = new AnimMonSprite(id, mon.shiny, sc);
+            anim.sprite.position.set(x, heightAt(x, z) + sc * 0.45, z);
+            this.scene.add(anim.sprite);
             this.active.push({
-              mon, sprite: spr, t: Math.random() * 10,
-              wx: x, wz: z, tx: x, tz: z, retarget: 0,
+              mon, sprite: anim.sprite, anim, sc, t: Math.random() * 10,
+              wx: x, wz: z, tx: x, tz: z, retarget: 0, alertT: 0,
               temper: temperament(DEX[id - 1]),
               sleeping: atmosphere?.isNight() && Math.random() < 0.35,
             });
@@ -146,43 +131,64 @@ export class Spawns {
         }
       }
     }
-    // behavior: sleep / chase / flee / wander
+    // behavior: sleep / chase / flee / wander, with creature-like motion
     for (const s of this.active) {
       s.t += dt;
+      s.anim.update(dt);
       const sx = s.sprite.position.x, sz = s.sprite.position.z;
       const toPlayer = Math.hypot(px - sx, pz - sz);
       let speed = 3;
       if (s.sleeping) {
-        // sleeps until you get close
-        if (toPlayer < 7) s.sleeping = false;
-        s.sprite.position.y = heightAt(sx, sz) + s.sprite.scale.x * 0.38
-          + Math.sin(s.t * 0.9) * 0.12;
+        // sleeps until you get close — then startles awake
+        if (toPlayer < 7) { s.sleeping = false; s.alertT = 0.6; }
+        s.sprite.position.y = heightAt(sx, sz) + s.sc * 0.38 + Math.sin(s.t * 0.9) * 0.12;
         continue;
       }
       s.retarget -= dt;
+      let moving = false;
       if (s.temper === 'aggressive' && toPlayer < 28 && toPlayer > 4) {
-        s.tx = px; s.tz = pz; speed = 6.5;             // charge!
+        if (!s.noticed) { s.noticed = true; s.alertT = 0.6; } // spotted you!
+        s.tx = px; s.tz = pz; speed = 6.5;
       } else if (s.temper === 'timid' && toPlayer < 18) {
+        if (!s.noticed) { s.noticed = true; s.alertT = 0.6; }
         const fx = sx - px, fz = sz - pz;
         s.tx = sx + (fx / toPlayer) * 20; s.tz = sz + (fz / toPlayer) * 20;
-        speed = 8;                                      // bolt
-      } else if (s.retarget <= 0) {
-        s.retarget = 2 + Math.random() * 4;
-        const a = Math.random() * Math.PI * 2, d = Math.random() * 14;
-        const nx = s.wx + Math.sin(a) * d, nz = s.wz + Math.cos(a) * d;
-        if (isLand(nx, nz)) { s.tx = nx; s.tz = nz; }
+        speed = 8;
+      } else {
+        if (toPlayer > 32) s.noticed = false;
+        if (s.retarget <= 0) {
+          s.retarget = 2 + Math.random() * 4;
+          const a = Math.random() * Math.PI * 2, d = Math.random() * 14;
+          const nx = s.wx + Math.sin(a) * d, nz = s.wz + Math.cos(a) * d;
+          if (isLand(nx, nz)) { s.tx = nx; s.tz = nz; }
+        }
       }
       const dx = s.tx - sx, dz = s.tz - sz;
       const dist = Math.hypot(dx, dz);
       if (dist > 0.5) {
         const step = speed * dt;
         const nx = sx + (dx / dist) * step, nz = sz + (dz / dist) * step;
-        if (isLand(nx, nz)) { s.sprite.position.x = nx; s.sprite.position.z = nz; }
+        if (isLand(nx, nz)) { s.sprite.position.x = nx; s.sprite.position.z = nz; moving = true; }
       }
-      const sc = s.sprite.scale.x;
-      s.sprite.position.y = heightAt(s.sprite.position.x, s.sprite.position.z)
-        + sc * 0.45 + Math.sin(s.t * 2.2) * 0.5;
+      // gait: hop while moving, gentle bob while idle; alert = startled leap
+      let y = heightAt(s.sprite.position.x, s.sprite.position.z) + s.sc * 0.45;
+      if (s.alertT > 0) {
+        s.alertT -= dt;
+        y += Math.sin(Math.min(1, 1 - s.alertT / 0.6) * Math.PI) * 2.4;
+      } else if (moving) {
+        y += Math.abs(Math.sin(s.t * (speed > 5 ? 11 : 7))) * 0.9;
+        s.sprite.material.rotation = Math.sin(s.t * 9) * 0.05 * (speed > 5 ? 1.6 : 1);
+      } else {
+        y += Math.sin(s.t * 2.2) * 0.4;
+        s.sprite.material.rotation *= 0.9;
+      }
       if (s.mon.shiny) s.sprite.material.rotation = Math.sin(s.t * 6) * 0.06;
+      s.sprite.position.y = y;
+    }
+    for (const lm of this.landmarkMons.values()) {
+      lm.t += dt;
+      lm.anim.update(dt);
+      lm.sprite.position.y = lm.landmark.y + 8 + Math.sin(lm.t * 1.4) * 0.7;
     }
   }
 
@@ -200,6 +206,7 @@ export class Spawns {
   }
 
   remove(s) {
+    s.anim?.dispose();
     this.scene.remove(s.sprite);
     if (s.legendary) {
       this.landmarkMons.delete(s.landmark.species);

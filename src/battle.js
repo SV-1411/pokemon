@@ -6,6 +6,8 @@ import {
   DEX, MOVES, effectiveness, TYPE_COLORS, sprFront, sprBack, moveName,
   expForLevel, expGain, recalcStats, movesAtLevel, displayName, tryCapture, BALLS,
 } from './data.js';
+import { showdownUrl } from './anim-sprites.js';
+import { SFX } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 let ctx = null; // { save, onSee, onCaught, addCaught, toast }
@@ -73,10 +75,17 @@ export function animate(el, cls, ms = 500) {
   el.classList.add(cls);
   setTimeout(() => el.classList.remove(cls), ms);
 }
+// Animated Showdown GIF first; fall back through the static sprites.
+export function setSpriteImg(img, candidates) {
+  let i = 0;
+  img.onerror = () => { if (++i < candidates.length) img.src = candidates[i]; else img.onerror = null; };
+  img.src = candidates[0];
+}
 function setSprite(el, mon, back) {
   const img = el.querySelector('img');
-  img.onerror = () => { img.onerror = null; img.src = sprFront(mon.id, mon.shiny); };
-  img.src = back ? sprBack(mon.id, mon.shiny) : sprFront(mon.id, mon.shiny);
+  setSpriteImg(img, back
+    ? [showdownUrl(mon.id, { back: true, shiny: mon.shiny }), sprBack(mon.id, mon.shiny), sprFront(mon.id, mon.shiny)]
+    : [showdownUrl(mon.id, { shiny: mon.shiny }), sprFront(mon.id, mon.shiny)]);
   el.style.opacity = 1;
 }
 function hpColor(f) { return f > 0.5 ? '#58c858' : f > 0.2 ? '#f8c838' : '#e84848'; }
@@ -179,6 +188,8 @@ export function startBattle(opts) {
     };
     setScene(opts.biome ?? 'plains');
     $('battle').classList.remove('hidden');
+    SFX.encounter();
+    SFX.bgm('battle');
     intro();
   });
 }
@@ -194,8 +205,10 @@ async function intro() {
   ctx.onSee(en().id);
   if (B.trainer) {
     await say(`TRAINER ${B.trainer.name} wants to battle!`);
+    SFX.cry(en().id);
     await say(`${B.trainer.name} sent out ${en().name.toUpperCase()}!`);
   } else {
+    SFX.cry(en().id);
     await say(`A wild ${en().shiny ? 'SHINY ' : ''}${en().name.toUpperCase()} appeared!`);
   }
   if (B.weather === 'rain') await say('Rain is falling…');
@@ -354,6 +367,7 @@ async function doMove(att, def, mv, isMe) {
   def.hp = Math.max(0, def.hp - dmg);
   flashSprite(isMe ? 'sprEnemy' : 'sprMe');
   animate($('bframe'), 'hit-shake', 420);
+  SFX.hit(eff);
   syncBars(me(), en());
   if (crit) await say('A critical hit!');
   if (eff >= 2) await say("It's super effective!");
@@ -377,13 +391,19 @@ async function enemyStrike() {
 async function ballTurn(key) {
   ctx.save.balls[key]--;
   const E = en();
+  SFX.throwBall();
   await say(`${ctx.save.name} threw a ${BALLS[key].label.toUpperCase()}!`);
   $('sprEnemy').style.opacity = 0.15;
   // sleeping wilds are twice as easy to catch (official status bonus)
   const sleepBonus = B.wildRef?.sleeping ? 2 : 1;
   const { caught, shakes } = tryCapture(E, BALLS[key].mult * sleepBonus);
-  for (let i = 0; i < (caught ? 3 : shakes); i++) await say(`…${'tick'.repeat(1)}${i + 1}…`);
+  for (let i = 0; i < (caught ? 3 : shakes); i++) {
+    SFX.ballShake();
+    await say(`…${'tick'.repeat(1)}${i + 1}…`);
+  }
   if (caught) {
+    SFX.catchClick();
+    setTimeout(() => SFX.caught(), 500);
     await say(`Gotcha! ${E.name.toUpperCase()} was caught!`);
     ctx.onCaught(E.id);
     ctx.addCaught(E);
@@ -391,6 +411,7 @@ async function ballTurn(key) {
     return finish('caught');
   }
   $('sprEnemy').style.opacity = 1;
+  SFX.breakout();
   await say(`Oh no! The POKéMON broke free!`);
   if (await enemyStrike()) return;
   endTurn();
@@ -415,6 +436,7 @@ async function tryRun() {
 async function enemyFainted() {
   const E = en();
   $('sprEnemy').style.opacity = 0;
+  SFX.faint();
   await say(`${E.name.toUpperCase()} fainted!`);
   await grantExp(DEX[E.id - 1].exp, E.lvl);
   if (B.trainer) {
@@ -444,6 +466,7 @@ async function enemyFainted() {
 }
 async function myFainted() {
   $('sprMe').style.opacity = 0;
+  SFX.faint();
   await say(`${me().name.toUpperCase()} fainted!`);
   if (ctx.save.party.some((p) => p.hp > 0)) {
     $('bmsg').textContent = 'Choose your next POKéMON!';
@@ -476,6 +499,7 @@ async function grantExp(baseExp, faintedLvl) {
     M.friend = Math.min(255, (M.friend ?? 70) + 3);
     recalcStats(M);
     syncBars(M, en());
+    SFX.levelup();
     await say(`${M.name.toUpperCase()} grew to Lv${M.lvl}!`);
     for (const mv of movesAtLevel(M, M.lvl)) await learnMove(M, mv);
     const sp = DEX[M.id - 1];
@@ -527,6 +551,7 @@ function endTurn() {
 }
 function finish(outcome) {
   B.done = true;
+  SFX.bgm('world');
   const resolve = B.resolve;
   setTimeout(() => {
     $('battle').classList.add('hidden');
