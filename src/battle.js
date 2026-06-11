@@ -23,14 +23,55 @@ function pump() {
 }
 
 // ---------- UI ----------
-const BIOME_SKY = {
-  coast: ['#9fd8ef', '#e8d8a8'], desert: ['#f8d8a0', '#e8b870'], plains: ['#9fd8ef', '#b8e0a0'],
-  forest: ['#88c8a8', '#587848'], jungle: ['#68a888', '#3a5838'], hills: ['#a8c0d8', '#98a888'],
-  himalaya: ['#c8d8ef', '#e8eef8'], city: ['#b8c8d8', '#989898'], ocean: ['#88b8e8', '#4878b8'],
+// GBA-style painted battle backdrops: sky gradient, clouds, hill silhouettes
+// and a ground band — generated per biome like the Emerald battle scenes.
+const BIOME_PALETTE = {
+  coast: { sky: ['#7ec8ee', '#cfe9f5'], hills: '#4d9bbf', ground: '#e8d8a8', g2: '#d4bd85' },
+  desert: { sky: ['#f6cf92', '#fbe6bd'], hills: '#c9913f', ground: '#e8c27a', g2: '#d3a85e' },
+  plains: { sky: ['#86c8f0', '#d8eefb'], hills: '#5c9e58', ground: '#9ed07a', g2: '#7eb95e' },
+  forest: { sky: ['#7fb98f', '#cfe7c8'], hills: '#36703c', ground: '#5e9b50', g2: '#4a8440' },
+  jungle: { sky: ['#5e9b7c', '#b3d6b8'], hills: '#234f2c', ground: '#3f7a3c', g2: '#326530' },
+  hills: { sky: ['#9dbede', '#dfe9f2'], hills: '#6f8463', ground: '#8aa06c', g2: '#74895a' },
+  himalaya: { sky: ['#a8c6e8', '#eef4fb'], hills: '#b9c6d6', ground: '#e8eef5', g2: '#cdd9e6' },
+  city: { sky: ['#9db8d2', '#dfe5ec'], hills: '#7b8694', ground: '#b8b2a4', g2: '#a39d90' },
+  ocean: { sky: ['#74b4e4', '#cfe6f7'], hills: '#3a7ab0', ground: '#5a9ed0', g2: '#4a8cc0' },
 };
+export function paintBattleBg(biome) {
+  const p = BIOME_PALETTE[biome] ?? BIOME_PALETTE.plains;
+  const cv = document.createElement('canvas');
+  cv.width = 480; cv.height = 320;
+  const g = cv.getContext('2d');
+  const sky = g.createLinearGradient(0, 0, 0, 230);
+  sky.addColorStop(0, p.sky[0]); sky.addColorStop(1, p.sky[1]);
+  g.fillStyle = sky; g.fillRect(0, 0, 480, 230);
+  g.fillStyle = 'rgba(255,255,255,.75)';
+  for (const [cx, cy, s] of [[80, 60, 26], [150, 48, 18], [340, 80, 30], [410, 60, 18]]) {
+    g.beginPath();
+    g.ellipse(cx, cy, s * 1.7, s * 0.62, 0, 0, 7);
+    g.ellipse(cx - s, cy + 6, s * 1.1, s * 0.5, 0, 0, 7);
+    g.ellipse(cx + s, cy + 7, s * 1.2, s * 0.5, 0, 0, 7);
+    g.fill();
+  }
+  g.fillStyle = p.hills;
+  g.beginPath(); g.moveTo(0, 230);
+  for (let x = 0; x <= 480; x += 4) {
+    g.lineTo(x, 196 + Math.sin(x * 0.012) * 16 + Math.sin(x * 0.05 + 2) * 7);
+  }
+  g.lineTo(480, 230); g.closePath(); g.fill();
+  const gr = g.createLinearGradient(0, 215, 0, 320);
+  gr.addColorStop(0, p.ground); gr.addColorStop(1, p.g2);
+  g.fillStyle = gr; g.fillRect(0, 215, 480, 105);
+  return cv.toDataURL();
+}
 function setScene(biome) {
-  const [top, bot] = BIOME_SKY[biome] ?? BIOME_SKY.plains;
-  $('bframe').style.background = `linear-gradient(180deg, ${top} 0%, ${top} 55%, ${bot} 100%)`;
+  $('bscene').style.backgroundImage = `url(${paintBattleBg(biome)})`;
+  $('bframe').style.background = '#000';
+}
+export function animate(el, cls, ms = 500) {
+  el.classList.remove(cls);
+  void el.offsetWidth; // restart the animation
+  el.classList.add(cls);
+  setTimeout(() => el.classList.remove(cls), ms);
 }
 function setSprite(el, mon, back) {
   const img = el.querySelector('img');
@@ -147,6 +188,8 @@ const en = () => B.enemyTeam[B.enIdx];
 async function intro() {
   setSprite($('sprEnemy'), en(), false);
   setSprite($('sprMe'), me(), true);
+  animate($('sprMe'), 'enter-me', 600);
+  animate($('sprEnemy'), 'enter-en', 600);
   syncBars(me(), en());
   ctx.onSee(en().id);
   if (B.trainer) {
@@ -296,6 +339,7 @@ async function doMove(att, def, mv, isMe) {
   }
   att.pp[mv] = Math.max(0, (att.pp[mv] ?? 1) - 1);
   const d = MOVES[mv];
+  animate($(isMe ? 'sprMe' : 'sprEnemy'), isMe ? 'lunge-me' : 'lunge-en', 460);
   await say(`${att.name.toUpperCase()} used ${moveName(mv).toUpperCase()}!`);
   if (Math.random() * 100 >= d.a) { await say('But it missed!'); return; }
   const { dmg, eff, crit } = calcDamage(att, def, mv);
@@ -309,6 +353,7 @@ async function doMove(att, def, mv, isMe) {
   }
   def.hp = Math.max(0, def.hp - dmg);
   flashSprite(isMe ? 'sprEnemy' : 'sprMe');
+  animate($('bframe'), 'hit-shake', 420);
   syncBars(me(), en());
   if (crit) await say('A critical hit!');
   if (eff >= 2) await say("It's super effective!");

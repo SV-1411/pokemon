@@ -384,10 +384,34 @@ export function buildWorld(scene, opts = {}) {
 
   plantVegetation(scene, lowSpec);
   plantTallGrass(scene);
-  const lampMats = [];
-  for (const c of CITIES) buildCity(scene, c, lampMats, lowSpec);
+  const lampMats = [], windowMats = [];
+  for (const c of CITIES) buildCity(scene, c, lampMats, windowMats, lowSpec);
   buildVillages(scene, lowSpec);
   for (const l of LANDMARKS) buildLandmark(scene, l);
+
+  // drifting clouds
+  const cloudCv = document.createElement('canvas');
+  cloudCv.width = 128; cloudCv.height = 64;
+  const cg = cloudCv.getContext('2d');
+  for (const [cx, cy, r] of [[40, 38, 22], [66, 30, 26], [94, 38, 20], [60, 44, 24]]) {
+    const grad = cg.createRadialGradient(cx, cy, 2, cx, cy, r);
+    grad.addColorStop(0, 'rgba(255,255,255,.9)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    cg.fillStyle = grad;
+    cg.fillRect(0, 0, 128, 64);
+  }
+  const cloudMat = new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(cloudCv), transparent: true, opacity: 0.7, depthWrite: false,
+  });
+  const clouds = [];
+  for (let i = 0; i < 34; i++) {
+    const s = new THREE.Sprite(cloudMat);
+    const sc = 60 + hash(i, 301) * 90;
+    s.scale.set(sc, sc * 0.42, 1);
+    s.position.set((hash(i, 302) - 0.5) * 2600, 130 + hash(i, 303) * 70, (hash(i, 304) - 0.5) * 2600);
+    scene.add(s);
+    clouds.push(s);
+  }
 
   // ---------- runtime API (driven by weather.js / main.js) ----------
   const sunDir = new THREE.Vector3();
@@ -404,13 +428,21 @@ export function buildWorld(scene, opts = {}) {
       sun.intensity = 2.4 * day;
       hemi.intensity = 0.25 + 0.75 * day;
       for (const m of lampMats) m.emissiveIntensity = day < 0.35 ? 2.2 : 0;
+      for (const m of windowMats) m.emissiveIntensity = day < 0.35 ? 1.1 : 0;
+      cloudMat.opacity = 0.18 + day * 0.55;
       return day; // 0 = night, 1 = full day
     },
     placeSunShadow(px, pz) {
       sun.position.set(px + sunDir.x * 400, Math.max(120, sunDir.y * 400), pz + sunDir.z * 400);
       sun.target.position.set(px, 0, pz);
     },
-    tick(dt) { waterUniforms.uTime.value += dt; },
+    tick(dt) {
+      waterUniforms.uTime.value += dt;
+      for (const s of clouds) {
+        s.position.x += dt * 2.4;
+        if (s.position.x > 1300) s.position.x = -1300;
+      }
+    },
     setFog(color, near, far) {
       scene.fog.color.set(color);
       scene.fog.near = near; scene.fog.far = far;
@@ -422,14 +454,15 @@ export function buildWorld(scene, opts = {}) {
 // ---------- vegetation ----------
 // Multi-part instanced "prefabs": each part is an InstancedMesh sharing the
 // same per-instance transform list.
-function instancedPrefab(scene, parts, matrices, shadows) {
-  for (const { geo, mat, local } of parts) {
+function instancedPrefab(scene, parts, matrices, shadows, colors) {
+  for (const { geo, mat, local, tint } of parts) {
     const im = new THREE.InstancedMesh(geo, mat, matrices.length);
     const m = new THREE.Matrix4();
     matrices.forEach((world, i) => {
       m.copy(world);
       if (local) m.multiply(local);
       im.setMatrixAt(i, m);
+      if (tint && colors) im.setColorAt(i, colors[i]); // per-instance hue variety
     });
     im.castShadow = shadows;
     scene.add(im);
@@ -451,23 +484,30 @@ const local = (x, y, z, sx = 1, sy = 1, sz = 1, rz = 0) =>
 function plantVegetation(scene, lowSpec) {
   const trunkMat = new THREE.MeshLambertMaterial({ color: 0x6a4a2a });
   const palmTrunkMat = new THREE.MeshLambertMaterial({ color: 0x8a6a42 });
-  const leafMat = new THREE.MeshLambertMaterial({ color: 0x2e7a30 });
-  const jungleLeafMat = new THREE.MeshLambertMaterial({ color: 0x1f6028 });
-  const pineMat = new THREE.MeshLambertMaterial({ color: 0x2a5a38 });
-  const snowPineMat = new THREE.MeshLambertMaterial({ color: 0x8fae9a });
-  const palmLeafMat = new THREE.MeshLambertMaterial({ color: 0x3a8a3a });
-  const cactusMat = new THREE.MeshLambertMaterial({ color: 0x4a8a4a });
-  const rockMat = new THREE.MeshLambertMaterial({ color: 0x8a8278 });
+  // foliage materials are white — per-instance colors carry the actual green
+  const leafMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const jungleLeafMat = leafMat, pineMat = leafMat, snowPineMat = leafMat,
+    palmLeafMat = leafMat, cactusMat = leafMat, rockMat = leafMat;
 
-  const sets = {
-    broadleaf: [], jungleTree: [], pine: [], snowPine: [], palm: [], cactus: [], rock: [],
+  const BASE_TINT = {
+    broadleaf: 0x2e7a30, jungleTree: 0x1f6028, pine: 0x2a5a38,
+    snowPine: 0x8fae9a, palm: 0x3a8a3a, cactus: 0x4a8a4a, rock: 0x8a8278,
   };
+  const sets = {}, tints = {};
+  for (const k of Object.keys(BASE_TINT)) { sets[k] = []; tints[k] = []; }
   const cap = lowSpec ? 0.5 : 1;
   const want = {
     broadleaf: 1400 * cap, jungleTree: 700 * cap, pine: 900 * cap, snowPine: 400 * cap,
     palm: 500 * cap, cactus: 350 * cap, rock: 600 * cap,
   };
   let guard = 0;
+  const put = (k, mat) => {
+    if (sets[k].length >= want[k]) return false;
+    sets[k].push(mat);
+    tints[k].push(new THREE.Color(BASE_TINT[k])
+      .offsetHSL((hash(guard, 23) - 0.5) * 0.07, 0, (hash(guard, 29) - 0.5) * 0.14));
+    return true;
+  };
   const need = () => Object.keys(want).some((k) => sets[k].length < want[k]);
   while (need() && guard++ < 90000) {
     const x = (hash(guard, 17) - 0.5) * 1800, z = (hash(guard, 91) - 0.5) * 1900;
@@ -477,20 +517,17 @@ function plantVegetation(scene, lowSpec) {
     const s = 0.75 + hash(guard, 7) * 0.8;
     const ry = hash(guard, 19) * 6.28;
     const mat = M4(x, h, z, s, ry);
-    if (b === 'forest' || (b === 'plains' && hash(guard, 3) < 0.3)) {
-      if (sets.broadleaf.length < want.broadleaf) sets.broadleaf.push(mat);
-    } else if (b === 'jungle') {
-      if (sets.jungleTree.length < want.jungleTree) sets.jungleTree.push(mat);
-    } else if (b === 'hills') {
-      if (sets.pine.length < want.pine) sets.pine.push(mat);
-    } else if (b === 'himalaya' && h < 70) {
-      if (h < 45 && sets.snowPine.length < want.snowPine) sets.snowPine.push(mat);
-      else if (sets.rock.length < want.rock) sets.rock.push(mat);
+    if (b === 'forest' || (b === 'plains' && hash(guard, 3) < 0.3)) put('broadleaf', mat);
+    else if (b === 'jungle') put('jungleTree', mat);
+    else if (b === 'hills') put('pine', mat);
+    else if (b === 'himalaya' && h < 70) {
+      if (h < 45) put('snowPine', mat) || put('rock', mat);
+      else put('rock', mat);
     } else if (b === 'coast') {
-      if (hash(guard, 5) < 0.7 && sets.palm.length < want.palm) sets.palm.push(mat);
+      if (hash(guard, 5) < 0.7) put('palm', mat);
     } else if (b === 'desert') {
-      if (hash(guard, 5) < 0.5) { if (sets.cactus.length < want.cactus) sets.cactus.push(mat); }
-      else if (sets.rock.length < want.rock) sets.rock.push(mat);
+      if (hash(guard, 5) < 0.5) put('cactus', mat);
+      else put('rock', mat);
     }
   }
 
@@ -501,37 +538,37 @@ function plantVegetation(scene, lowSpec) {
 
   instancedPrefab(scene, [
     { geo: cyl(0.3, 0.45, 3.2), mat: trunkMat, local: local(0, 1.6, 0) },
-    { geo: blob(2.3), mat: leafMat, local: local(0, 4.6, 0, 1, 0.92, 1) },
-    { geo: blob(1.5), mat: leafMat, local: local(1.2, 3.8, 0.7, 1, 0.85, 1) },
-  ], sets.broadleaf, sh);
+    { geo: blob(2.3), mat: leafMat, local: local(0, 4.6, 0, 1, 0.92, 1), tint: true },
+    { geo: blob(1.5), mat: leafMat, local: local(1.2, 3.8, 0.7, 1, 0.85, 1), tint: true },
+  ], sets.broadleaf, sh, tints.broadleaf);
   instancedPrefab(scene, [
     { geo: cyl(0.35, 0.5, 4.2), mat: trunkMat, local: local(0, 2.1, 0) },
-    { geo: blob(2.8), mat: jungleLeafMat, local: local(0, 5.6, 0, 1.15, 0.8, 1.15) },
-    { geo: blob(1.8), mat: jungleLeafMat, local: local(-1.5, 4.4, 0.9, 1, 0.8, 1) },
-  ], sets.jungleTree, sh);
+    { geo: blob(2.8), mat: jungleLeafMat, local: local(0, 5.6, 0, 1.15, 0.8, 1.15), tint: true },
+    { geo: blob(1.8), mat: jungleLeafMat, local: local(-1.5, 4.4, 0.9, 1, 0.8, 1), tint: true },
+  ], sets.jungleTree, sh, tints.jungleTree);
   instancedPrefab(scene, [
     { geo: cyl(0.25, 0.35, 2.4), mat: trunkMat, local: local(0, 1.2, 0) },
-    { geo: cone(2.1, 3.2), mat: pineMat, local: local(0, 3.6, 0) },
-    { geo: cone(1.6, 2.6), mat: pineMat, local: local(0, 5.3, 0) },
-    { geo: cone(1.1, 2.1), mat: pineMat, local: local(0, 6.8, 0) },
-  ], sets.pine, sh);
+    { geo: cone(2.1, 3.2), mat: pineMat, local: local(0, 3.6, 0), tint: true },
+    { geo: cone(1.6, 2.6), mat: pineMat, local: local(0, 5.3, 0), tint: true },
+    { geo: cone(1.1, 2.1), mat: pineMat, local: local(0, 6.8, 0), tint: true },
+  ], sets.pine, sh, tints.pine);
   instancedPrefab(scene, [
     { geo: cyl(0.25, 0.35, 2.4), mat: trunkMat, local: local(0, 1.2, 0) },
-    { geo: cone(2.0, 3.0), mat: snowPineMat, local: local(0, 3.5, 0) },
-    { geo: cone(1.4, 2.4), mat: snowPineMat, local: local(0, 5.1, 0) },
-  ], sets.snowPine, sh);
+    { geo: cone(2.0, 3.0), mat: snowPineMat, local: local(0, 3.5, 0), tint: true },
+    { geo: cone(1.4, 2.4), mat: snowPineMat, local: local(0, 5.1, 0), tint: true },
+  ], sets.snowPine, sh, tints.snowPine);
   instancedPrefab(scene, [
     { geo: cyl(0.22, 0.3, 5.2), mat: palmTrunkMat, local: local(0.35, 2.6, 0, 1, 1, 1, 0.16) },
-    { geo: blob(1.6), mat: palmLeafMat, local: local(1.1, 5.4, 0, 1.6, 0.45, 1.6) },
-  ], sets.palm, sh);
+    { geo: blob(1.6), mat: palmLeafMat, local: local(1.1, 5.4, 0, 1.6, 0.45, 1.6), tint: true },
+  ], sets.palm, sh, tints.palm);
   instancedPrefab(scene, [
-    { geo: cyl(0.5, 0.55, 3.4), mat: cactusMat, local: local(0, 1.7, 0) },
-    { geo: cyl(0.28, 0.3, 1.6), mat: cactusMat, local: local(0.85, 2.4, 0, 1, 1, 1, 1.1) },
-    { geo: cyl(0.28, 0.3, 1.3), mat: cactusMat, local: local(-0.8, 1.9, 0, 1, 1, 1, -1.2) },
-  ], sets.cactus, sh);
+    { geo: cyl(0.5, 0.55, 3.4), mat: cactusMat, local: local(0, 1.7, 0), tint: true },
+    { geo: cyl(0.28, 0.3, 1.6), mat: cactusMat, local: local(0.85, 2.4, 0, 1, 1, 1, 1.1), tint: true },
+    { geo: cyl(0.28, 0.3, 1.3), mat: cactusMat, local: local(-0.8, 1.9, 0, 1, 1, 1, -1.2), tint: true },
+  ], sets.cactus, sh, tints.cactus);
   instancedPrefab(scene, [
-    { geo: new THREE.DodecahedronGeometry(1.4), mat: rockMat, local: local(0, 0.6, 0, 1, 0.75, 1) },
-  ], sets.rock, sh);
+    { geo: new THREE.DodecahedronGeometry(1.4), mat: rockMat, local: local(0, 0.6, 0, 1, 0.75, 1), tint: true },
+  ], sets.rock, sh, tints.rock);
 }
 
 function plantTallGrass(scene) {
@@ -640,48 +677,228 @@ export function makeLabel(text, color = '#ffffff', size = 26) {
   return spr;
 }
 
-function buildCity(scene, c, lampMats, lowSpec) {
+// ---------- realistic city blocks ----------
+// Procedural building facades: plaster base, storefront strip, a window grid —
+// plus a matching emissive map so the windows glow warm at night.
+const FACADE_BASES = ['#e8dcc8', '#d8c8b0', '#c8d2dc', '#e2cfc2', '#cfd8c8', '#dcd0e0'];
+let FACADES = null;
+function makeFacades() {
+  FACADES = [];
+  for (let v = 0; v < 6; v++) {
+    const cv = document.createElement('canvas');
+    cv.width = 128; cv.height = 256;
+    const g = cv.getContext('2d');
+    const ev = document.createElement('canvas');
+    ev.width = 128; ev.height = 256;
+    const eg = ev.getContext('2d');
+    eg.fillStyle = '#000'; eg.fillRect(0, 0, 128, 256);
+    g.fillStyle = FACADE_BASES[v]; g.fillRect(0, 0, 128, 256);
+    // grime + floor lines
+    for (let i = 0; i < 300; i++) {
+      g.fillStyle = `rgba(60,50,40,${Math.random() * 0.06})`;
+      g.fillRect(Math.random() * 128, Math.random() * 256, 3, 3);
+    }
+    // storefront at street level: dark strip, door, shop window
+    g.fillStyle = '#5a4a3c'; g.fillRect(0, 214, 128, 42);
+    g.fillStyle = '#3a2e24'; g.fillRect(14, 222, 24, 34);
+    g.fillStyle = '#79a8b8'; g.fillRect(52, 222, 60, 26);
+    // window grid above
+    const cols = 3, rows = 5;
+    for (let r = 0; r < rows; r++) {
+      for (let col = 0; col < cols; col++) {
+        const x = 12 + col * 38, y = 14 + r * 39;
+        g.fillStyle = '#8a8276'; g.fillRect(x - 2, y - 2, 28, 32); // frame
+        g.fillStyle = '#2c3a52'; g.fillRect(x, y, 24, 28);         // glass
+        g.fillStyle = 'rgba(255,255,255,.18)'; g.fillRect(x, y, 24, 9);
+        if ((v * 7 + r * 3 + col * 5) % 5 < 3) {                  // ~60% lit at night
+          eg.fillStyle = '#ffd07a'; eg.fillRect(x, y, 24, 28);
+        }
+      }
+    }
+    const map = new THREE.CanvasTexture(cv);
+    map.colorSpace = THREE.SRGBColorSpace;
+    FACADES.push({ map, emissive: new THREE.CanvasTexture(ev) });
+  }
+}
+const SHOPS = ['POKé MART', 'CHAI POINT', 'DOSA CORNER', 'CYCLE WORKS', 'JUICE WALA', 'SWEET HOUSE'];
+
+function buildApartment(parent, x, z, ry, seed, windowMats, shadows) {
+  const f = FACADES[seed % FACADES.length];
+  const w = 5 + hash(seed, 41) * 1.5, d = 4.6 + hash(seed, 42) * 1.4;
+  const floors = 2 + Math.floor(hash(seed, 43) * 4);
+  const hgt = floors * 3.4;
+  const side = new THREE.MeshLambertMaterial({
+    map: f.map, emissiveMap: f.emissive, emissive: 0xffc878, emissiveIntensity: 0,
+  });
+  windowMats.push(side);
+  const roof = new THREE.MeshLambertMaterial({ color: 0x7a7268 });
+  const b = new THREE.Mesh(new THREE.BoxGeometry(w, hgt, d), [side, side, roof, roof, side, side]);
+  b.position.set(x, hgt / 2, z);
+  b.rotation.y = ry;
+  b.castShadow = shadows;
+  parent.add(b);
+  // rooftop water tank — the most Indian skyline detail there is
+  if (hash(seed, 44) < 0.6) {
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 1.2, 8),
+      new THREE.MeshLambertMaterial({ color: 0x222932 }));
+    tank.position.set(x + Math.cos(ry) * 1.2, hgt + 0.6, z + Math.sin(ry) * 1.2);
+    parent.add(tank);
+  }
+}
+
+function signTexture(text, bg) {
+  const cv = document.createElement('canvas');
+  cv.width = 256; cv.height = 56;
+  const g = cv.getContext('2d');
+  g.fillStyle = bg; g.fillRect(0, 0, 256, 56);
+  g.strokeStyle = '#fff'; g.lineWidth = 3; g.strokeRect(3, 3, 250, 50);
+  g.fillStyle = '#fff'; g.font = 'bold 30px Courier New';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(text, 128, 30);
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function buildShop(parent, x, z, ry, seed, shadows) {
+  const g = new THREE.Group();
+  const wall = new THREE.MeshLambertMaterial({ color: PLASTER[seed % PLASTER.length] });
+  const base = new THREE.Mesh(new THREE.BoxGeometry(5.4, 3.4, 4.4), wall);
+  base.position.y = 1.7; base.castShadow = shadows;
+  g.add(base);
+  // striped awning
+  const cv = document.createElement('canvas');
+  cv.width = 64; cv.height = 16;
+  const ag = cv.getContext('2d');
+  const colA = seed % 2 ? '#d8483c' : '#3a7a4a';
+  for (let i = 0; i < 8; i++) { ag.fillStyle = i % 2 ? '#f5f0e5' : colA; ag.fillRect(i * 8, 0, 8, 16); }
+  const awn = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 1.6),
+    new THREE.MeshLambertMaterial({ map: new THREE.CanvasTexture(cv), side: THREE.DoubleSide }));
+  awn.position.set(0, 2.8, 2.75); awn.rotation.x = 0.5;
+  g.add(awn);
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 1),
+    new THREE.MeshLambertMaterial({ map: signTexture(SHOPS[seed % SHOPS.length], seed % 2 ? '#b03a30' : '#2a5a8a') }));
+  sign.position.set(0, 3.95, 2.26);
+  g.add(sign);
+  const door = new THREE.Mesh(new THREE.BoxGeometry(1.1, 2, 0.1),
+    new THREE.MeshLambertMaterial({ color: 0x4a3526 }));
+  door.position.set(-1.4, 1, 2.21);
+  const win = new THREE.Mesh(new THREE.BoxGeometry(2.1, 1.3, 0.1),
+    new THREE.MeshLambertMaterial({ color: 0x79a8b8 }));
+  win.position.set(1.1, 1.5, 2.21);
+  g.add(door, win);
+  g.position.set(x, 0, z); g.rotation.y = ry;
+  parent.add(g);
+}
+
+function buildRickshaw(parent, x, z, ry) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1, 2.3),
+    new THREE.MeshLambertMaterial({ color: 0xf5c518 }));
+  body.position.y = 0.85;
+  const canopy = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.75, 1.5),
+    new THREE.MeshLambertMaterial({ color: 0x1f4a2a }));
+  canopy.position.set(0, 1.72, -0.3);
+  const shield = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.6, 0.06),
+    new THREE.MeshLambertMaterial({ color: 0xbfd8e8 }));
+  shield.position.set(0, 1.5, 1.1);
+  const wheelG = new THREE.CylinderGeometry(0.34, 0.34, 0.16, 10);
+  const wheelM = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
+  for (const [wx, wz] of [[0, 1.0], [-0.7, -0.8], [0.7, -0.8]]) {
+    const wm = new THREE.Mesh(wheelG, wheelM);
+    wm.rotation.z = Math.PI / 2;
+    wm.position.set(wx, 0.34, wz);
+    g.add(wm);
+  }
+  g.add(body, canopy, shield);
+  g.position.set(x, 0, z); g.rotation.y = ry;
+  parent.add(g);
+}
+
+function buildCity(scene, c, lampMats, windowMats, lowSpec) {
+  if (!FACADES) makeFacades();
   const h = heightAt(c.x, c.z);
   const g = new THREE.Group();
   g.position.set(c.x, h, c.z);
-  const plaza = new THREE.Mesh(new THREE.CircleGeometry(CITY_R, 28),
-    new THREE.MeshLambertMaterial({ color: 0xb9b2a4 }));
-  plaza.rotation.x = -Math.PI / 2; plaza.position.y = 0.15;
-  plaza.receiveShadow = !lowSpec;
+  const sh = !lowSpec;
+  const seed0 = Math.floor(Math.abs(c.x * 7 + c.z * 13));
+
+  // paved plaza + four radiating streets with sidewalks
+  const plaza = new THREE.Mesh(new THREE.CircleGeometry(10, 30),
+    new THREE.MeshLambertMaterial({ color: 0xb3ac9e }));
+  plaza.rotation.x = -Math.PI / 2; plaza.position.y = 0.18;
+  plaza.receiveShadow = sh;
   g.add(plaza);
-  // ring of houses facing the plaza + a couple of taller blocks
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2 + hash(c.x, 1);
-    const px = Math.cos(a) * (CITY_R - 7), pz = Math.sin(a) * (CITY_R - 7);
-    buildHouse(g, px, 0, pz, -a + Math.PI / 2 + Math.PI, i + Math.floor(c.x), !lowSpec);
+  const asphalt = new THREE.MeshLambertMaterial({ color: 0x55524c });
+  const walkway = new THREE.MeshLambertMaterial({ color: 0xa8a294 });
+  for (let dir = 0; dir < 4; dir++) {
+    const a = (dir * Math.PI) / 2;
+    const len = CITY_R - 4;
+    const mid = 8 + len / 2;
+    const street = new THREE.Mesh(new THREE.BoxGeometry(5, 0.14, len), asphalt);
+    street.position.set(Math.sin(a) * mid, 0.14, Math.cos(a) * mid);
+    street.rotation.y = a;
+    street.receiveShadow = sh;
+    g.add(street);
+    for (const off of [-3.4, 3.4]) {
+      const sw = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.18, len), walkway);
+      sw.position.set(Math.sin(a) * mid + Math.cos(a) * off, 0.14, Math.cos(a) * mid - Math.sin(a) * off);
+      sw.rotation.y = a;
+      g.add(sw);
+    }
+    buildLamp(g, Math.sin(a) * (CITY_R - 4), 0, Math.cos(a) * (CITY_R - 4), lampMats, sh);
   }
-  for (let i = 0; i < 2; i++) {
-    const a = hash(c.z, i) * Math.PI * 2;
-    const bh = 9 + hash(i, c.x) * 9;
-    const block = new THREE.Mesh(new THREE.BoxGeometry(5.5, bh, 5.5),
-      new THREE.MeshLambertMaterial({ color: 0x9aa4b5 }));
-    block.position.set(Math.cos(a) * (CITY_R - 12), bh / 2, Math.sin(a) * (CITY_R - 12));
-    block.castShadow = !lowSpec;
-    g.add(block);
+  // textured apartment blocks lining the streets
+  let bi = 0;
+  for (let dir = 0; dir < 4; dir++) {
+    const a = (dir * Math.PI) / 2;
+    for (const along of [14, 20.5]) {
+      for (const sideOff of [-7.2, 7.2]) {
+        if (hash(seed0, bi) < 0.22) { bi++; continue; } // gaps keep skylines uneven
+        const bx = Math.sin(a) * along + Math.cos(a) * sideOff;
+        const bz = Math.cos(a) * along - Math.sin(a) * sideOff;
+        buildApartment(g, bx, bz, a + (sideOff > 0 ? -Math.PI / 2 : Math.PI / 2),
+          seed0 + bi, windowMats, sh);
+        bi++;
+      }
+    }
+  }
+  // shops at the plaza diagonals, facing the centre
+  for (let i = 0; i < 4; i++) {
+    const a = Math.PI / 4 + (i * Math.PI) / 2;
+    buildShop(g, Math.cos(a) * 13.5, Math.sin(a) * 13.5, -a - Math.PI / 2, seed0 + i, sh);
+  }
+  // parked autorickshaws + plaza lamps + hedges
+  for (let i = 0; i < 3; i++) {
+    const a = hash(seed0, 60 + i) * 6.28;
+    buildRickshaw(g, Math.cos(a) * 10.8, Math.sin(a) * 10.8, hash(seed0, 70 + i) * 6.28);
   }
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + 0.4;
-    buildLamp(g, Math.cos(a) * 9, 0, Math.sin(a) * 9, lampMats, !lowSpec);
+    buildLamp(g, Math.cos(a) * 8, 0, Math.sin(a) * 8, lampMats, sh);
   }
-  // Pokécenter
+  const hedgeMat = new THREE.MeshLambertMaterial({ color: 0x3a7a3a });
+  for (let i = 0; i < 10; i++) {
+    const a = Math.PI / 4 + (Math.floor(i / 3) * Math.PI) / 2 + (i % 3 - 1) * 0.22;
+    const hd = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1, 1), hedgeMat);
+    hd.position.set(Math.cos(a) * 17.5, 0.5, Math.sin(a) * 17.5);
+    hd.rotation.y = -a;
+    g.add(hd);
+  }
+  // Pokécenter on the plaza
   const pc = new THREE.Group();
-  const base = new THREE.Mesh(new THREE.BoxGeometry(8, 5, 8),
+  const base = new THREE.Mesh(new THREE.BoxGeometry(7, 4.6, 7),
     new THREE.MeshLambertMaterial({ color: 0xf2f0ea }));
-  base.position.y = 2.5;
-  base.castShadow = !lowSpec;
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(7, 3.6, 4),
+  base.position.y = 2.3; base.castShadow = sh;
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(6.4, 3.4, 4),
     new THREE.MeshLambertMaterial({ color: 0xe84848 }));
-  roof.position.y = 6.8; roof.rotation.y = Math.PI / 4;
-  roof.castShadow = !lowSpec;
-  pc.add(base, roof);
+  roof.position.y = 6.3; roof.rotation.y = Math.PI / 4; roof.castShadow = sh;
+  const pcSign = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 0.8),
+    new THREE.MeshLambertMaterial({ map: signTexture('POKéCENTER', '#c4392f') }));
+  pcSign.position.set(0, 3.6, 3.56);
+  pc.add(base, roof, pcSign);
   g.add(pc);
   const lbl = makeLabel(c.name, '#ffd34d');
-  lbl.position.y = 24;
+  lbl.position.y = 26;
   g.add(lbl);
   scene.add(g);
   c.worldY = h;

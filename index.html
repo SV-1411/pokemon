@@ -73,7 +73,19 @@
   #bframe { width: min(96vw, 880px); aspect-ratio: 3/2; max-height: 92vh; border: 6px solid #222;
     border-radius: 12px; overflow: hidden; position: relative; background: #9fd8ef;
     display: flex; flex-direction: column; }
-  #bscene { flex: 1; position: relative; }
+  #bscene { flex: 1; position: relative; background-size: 100% 100%; }
+  /* GBA-style battle motion */
+  @keyframes enterMe { from { transform: translateX(-130%); } to { transform: none; } }
+  @keyframes enterEn { from { transform: translateX(130%); } to { transform: none; } }
+  @keyframes lungeMe { 30% { transform: translate(36px,-14px); } 60% { transform: none; } }
+  @keyframes lungeEn { 30% { transform: translate(-36px,14px); } 60% { transform: none; } }
+  @keyframes hitShake { 20% { transform: translateX(7px); } 40% { transform: translateX(-7px); }
+    60% { transform: translateX(4px); } 80% { transform: translateX(-4px); } }
+  .enter-me { animation: enterMe .55s ease-out; }
+  .enter-en { animation: enterEn .55s ease-out; }
+  .lunge-me { animation: lungeMe .45s ease-in-out; }
+  .lunge-en { animation: lungeEn .45s ease-in-out; }
+  .hit-shake { animation: hitShake .4s linear; }
   .platform { position: absolute; width: 30%; height: 9%; border-radius: 50%;
     background: radial-gradient(ellipse, rgba(120,160,90,.95), rgba(90,130,70,.6) 70%, transparent); }
   #platEnemy { right: 7%; top: 38%; }
@@ -153,8 +165,8 @@
 </style>
 <script type="importmap">
 { "imports": {
-  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  "three": "./vendor/three.module.js",
+  "three/addons/": "./vendor/jsm/"
 } }
 </script>
 </head>

@@ -1,5 +1,9 @@
 // POKeMON INDIA — boot, world assembly, game loop, interactions.
 import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { loadData, DEX, byName, makeMon, sprFront, displayName, MOVES } from './data.js';
 import {
   buildWorld, lonLatToWorld, heightAt, biomeAt, nearCity, locationName,
@@ -50,12 +54,14 @@ let lastSave = 0, mapTick = 0;
 
 // ---------- boot ----------
 (async function boot() {
+  console.log('[boot] modules loaded, fetching data');
   try {
     await loadData();
   } catch (e) {
     $('loadmsg').textContent = 'Failed to load data/ — serve the folder over HTTP (python -m http.server).';
     throw e;
   }
+  console.log('[boot] data loaded');
   $('loading').classList.add('hidden');
   $('title').classList.remove('hidden');
 
@@ -123,13 +129,26 @@ function beginGame() {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   }
   camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.5, 1500);
+  scene = new THREE.Scene();
+  let composer = null;
+  if (!lowSpec && !location.search.includes('nobloom')) {
+    composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    // subtle bloom — sells the night lamps/windows and snow glare
+    // (half-res internals: visually identical, much cheaper)
+    composer.addPass(new UnrealBloomPass(
+      new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.32, 0.5, 0.86));
+    composer.addPass(new OutputPass());
+  }
   addEventListener('resize', () => {
     renderer.setSize(innerWidth, innerHeight);
+    composer?.setSize(innerWidth, innerHeight);
     camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
   });
-  scene = new THREE.Scene();
+  console.log('[boot] building world');
   world = buildWorld(scene, { lowSpec });
+  console.log('[boot] world built');
   atmosphere = new Atmosphere(scene, world);
   follower = new Follower(scene);
 
@@ -175,23 +194,31 @@ function beginGame() {
   refreshPartyBar();
   bindKeys();
   mode = 'world';
+  console.log('[boot] game running');
   window.__game = { atmosphere, player, save, world, net }; // debug/e2e handle
   toast(`Welcome to INDIA, ${save.name}! Wild Pokémon await.`);
-  if (location.search.includes('battletest')) {
-    setTimeout(async () => {
-      mode = 'battle'; player.frozen = true;
-      const result = await startBattle({ wild: makeMon(byName.gengar.id, 20), biome: 'forest' });
-      afterBattle(result);
-    }, 1200);
-  }
+  window.__test_battle = async () => {
+    if (mode !== 'world') return;
+    mode = 'battle'; player.frozen = true;
+    const result = await startBattle({ wild: makeMon(byName.gengar.id, 20), biome: 'forest' });
+    afterBattle(result);
+  };
+  if (location.search.includes('battletest')) setTimeout(window.__test_battle, 1200);
 
   let last = performance.now();
+  let frames = 0, fpsT = performance.now();
+  const logFps = location.search.includes('autotest');
   (function loop(now) {
     requestAnimationFrame(loop);
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     tick(dt, now);
-    renderer.render(scene, camera);
+    if (composer) composer.render();
+    else renderer.render(scene, camera);
+    if (logFps && ++frames && now - fpsT > 5000) {
+      console.log(`[fps] ${(frames / ((now - fpsT) / 1000)).toFixed(1)}`);
+      frames = 0; fpsT = now;
+    }
   })(performance.now());
 }
 

@@ -1,6 +1,7 @@
 // PvP battle screen: same GBA overlay as battle.js, but every outcome comes
 // from the server's event stream — this module only sends actions and renders.
 import { MOVES, sprFront, sprBack, moveName, TYPE_COLORS } from './data.js';
+import { paintBattleBg, animate } from './battle.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -133,6 +134,7 @@ async function processEvents(events) {
         const isMe = ev.side === S.side;
         const who = isMe ? S.team[S.myIdx] : S.opp;
         if (isMe && ev.mv !== 'struggle') who.pp[ev.mv] = Math.max(0, (who.pp[ev.mv] ?? 1) - 1);
+        animate($(isMe ? 'sprMe' : 'sprEnemy'), isMe ? 'lunge-me' : 'lunge-en', 460);
         await say(`${who.name.toUpperCase()} used ${moveName(ev.mv).toUpperCase()}!`);
         break;
       }
@@ -142,6 +144,7 @@ async function processEvents(events) {
         const mineHit = ev.side === S.side;
         if (mineHit) S.team[S.myIdx].hp = ev.hp; else S.opp.hp = ev.hp;
         flash(mineHit ? 'sprMe' : 'sprEnemy');
+        animate($('bframe'), 'hit-shake', 420);
         syncBars();
         if (ev.crit) await say('A critical hit!');
         if (ev.eff >= 2) await say("It's super effective!");
@@ -205,9 +208,12 @@ export function startPvpBattle(net, start) {
       });
     };
 
-    $('bframe').style.background = 'linear-gradient(180deg,#b8c8d8 0%,#b8c8d8 55%,#989898 100%)';
+    $('bscene').style.backgroundImage = `url(${paintBattleBg('city')})`;
+    $('bframe').style.background = '#000';
     $('battle').classList.remove('hidden');
     setSprites(); syncBars();
+    animate($('sprMe'), 'enter-me', 600);
+    animate($('sprEnemy'), 'enter-en', 600);
     await say(`TRAINER ${S.oppName} wants to battle!`);
     await say(`${S.oppName} sent out ${S.opp.name.toUpperCase()}!`);
     await say(`Go! ${S.team[0].name.toUpperCase()}!`);

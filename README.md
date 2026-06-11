@@ -5,8 +5,9 @@ the Himalaya in the north, the Thar desert in the west, the Western Ghats,
 southern forests, eastern jungles and 7,000 km of coastline — with **all 898
 Pokémon of Generations 1–8** living in biome-appropriate regions.
 
+![City](docs/screenshot-city-day.png)
+![City at night](docs/screenshot-city-night.png)
 ![World](docs/screenshot-world.png)
-![Night](docs/screenshot-night.png)
 ![Battle](docs/screenshot-battle.png)
 ![Multiplayer](docs/screenshot-multiplayer.png)
 ![PvP](docs/screenshot-pvp.png)
@@ -28,12 +29,17 @@ detects there's no server and runs offline.
 ## What's in the game
 
 - **Open world**: walk/run across India in third person. 20 real cities
-  (Bengaluru is home) with houses, street lamps and Pokécenters, connected by
-  a road network with villages along the way. Physical sky with a full
-  **day/night cycle** (1 game hour = 1 real minute), sun shadows, animated
-  water, and biome vegetation — palms on the coast, pines in the hills,
-  snow pines and rocks in the Himalaya, cacti in the Thar. Minimap + full
-  region map (M). Add `?low` to the URL on weak GPUs.
+  (Bengaluru is home) built as proper towns — a central plaza and radiating
+  streets with sidewalks, multi-storey buildings with procedurally textured
+  facades whose **windows light up at night**, shops with striped awnings and
+  signboards (Poké Mart, Chai Point, Dosa Corner…), parked auto-rickshaws,
+  rooftop water tanks, hedges and street lamps — all connected by a road
+  network with villages along the way. Physical sky with a full **day/night
+  cycle** (1 game hour = 1 real minute), drifting clouds, bloom
+  post-processing, sun shadows, animated water, and biome vegetation with
+  per-tree colour variation — palms on the coast, pines in the hills, snow
+  pines and rocks in the Himalaya, cacti in the Thar. Minimap + full region
+  map (M). Add `?low` to the URL on weak GPUs (`?nobloom` to skip only bloom).
 - **Tall grass**: patches everywhere — wild Pokémon cluster in them, and
   walking through tall grass triggers surprise encounters.
 - **Weather**: per-biome rain, snow, sandstorms, fog and harsh sun with
