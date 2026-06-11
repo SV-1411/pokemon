@@ -76,6 +76,13 @@ function setMenu(items) {
 const clearMenu = () => { $('bmenu').innerHTML = ''; };
 
 // ---------- damage ----------
+// Rain pumps water and douses fire; harsh sun does the opposite (official mults).
+function weatherMult(moveType) {
+  const w = B?.weather;
+  if (w === 'rain') return moveType === 'water' ? 1.5 : moveType === 'fire' ? 0.5 : 1;
+  if (w === 'sun') return moveType === 'fire' ? 1.5 : moveType === 'water' ? 0.5 : 1;
+  return 1;
+}
 function calcDamage(att, def, mvName) {
   const mv = MOVES[mvName];
   const eff = effectiveness(mv.t, def.types);
@@ -83,9 +90,11 @@ function calcDamage(att, def, mvName) {
   const A = mv.c === 'special' ? att.spa : att.atk;
   const D = mv.c === 'special' ? def.spd : def.def;
   const stab = att.types.includes(mv.t) ? 1.5 : 1;
-  const crit = Math.random() < 1 / 16;
+  // high friendship sharpens crits (affection mechanic)
+  const crit = Math.random() < ((att.friend ?? 70) >= 200 ? 1 / 8 : 1 / 16);
   const base = (((2 * att.lvl) / 5 + 2) * mv.p * (A / D)) / 50 + 2;
-  const dmg = Math.max(1, Math.floor(base * stab * eff * (crit ? 1.5 : 1) * (0.85 + Math.random() * 0.15)));
+  const dmg = Math.max(1, Math.floor(base * stab * eff * weatherMult(mv.t)
+    * (crit ? 1.5 : 1) * (0.85 + Math.random() * 0.15)));
   return { dmg, eff, crit };
 }
 function estDmg(att, def, mvName) { // deterministic expectation, for the AI
@@ -94,7 +103,8 @@ function estDmg(att, def, mvName) { // deterministic expectation, for the AI
   const A = mv.c === 'special' ? att.spa : att.atk;
   const D = mv.c === 'special' ? def.spd : def.def;
   const stab = att.types.includes(mv.t) ? 1.5 : 1;
-  const real = ((((2 * att.lvl) / 5 + 2) * mv.p * (A / D)) / 50 + 2) * stab * effectiveness(mv.t, def.types);
+  const real = ((((2 * att.lvl) / 5 + 2) * mv.p * (A / D)) / 50 + 2) * stab
+    * effectiveness(mv.t, def.types) * weatherMult(mv.t);
   return { exp: real * (mv.a / 100), min: real * 0.85, acc: mv.a };
 }
 function bestMove(att, def) {
@@ -115,6 +125,8 @@ export function startBattle(opts) {
   return new Promise((resolve) => {
     B = {
       wild: opts.wild ?? null,
+      weather: opts.weather ?? null,
+      wildRef: opts.wildRef ?? null,
       trainer: opts.trainer ?? null,
       enemyTeam: opts.trainer ? opts.trainer.team : [opts.wild],
       enIdx: 0,
@@ -141,8 +153,13 @@ async function intro() {
     await say(`TRAINER ${B.trainer.name} wants to battle!`);
     await say(`${B.trainer.name} sent out ${en().name.toUpperCase()}!`);
   } else {
-    await say(`A wild ${en().mon ? '' : ''}${en().shiny ? 'SHINY ' : ''}${en().name.toUpperCase()} appeared!`);
+    await say(`A wild ${en().shiny ? 'SHINY ' : ''}${en().name.toUpperCase()} appeared!`);
   }
+  if (B.weather === 'rain') await say('Rain is falling…');
+  else if (B.weather === 'sun') await say('The sunlight is harsh!');
+  else if (B.weather === 'snow') await say('Snow is falling…');
+  else if (B.weather === 'sandstorm') await say('A sandstorm rages!');
+  if (B.wildRef?.sleeping) await say(`${en().name.toUpperCase()} is fast asleep…`);
   await say(`Go! ${me().name.toUpperCase()}!`);
   mainMenu();
 }
@@ -283,6 +300,13 @@ async function doMove(att, def, mv, isMe) {
   if (Math.random() * 100 >= d.a) { await say('But it missed!'); return; }
   const { dmg, eff, crit } = calcDamage(att, def, mv);
   if (eff === 0) { await say(`It doesn't affect ${def.name.toUpperCase()}…`); return; }
+  // a devoted partner can endure a lethal hit at 1 HP (affection mechanic)
+  if (!isMe && dmg >= def.hp && (def.friend ?? 70) >= 180 && Math.random() < (def.friend ?? 70) / 450) {
+    def.hp = 1;
+    syncBars(me(), en());
+    await say(`${def.name.toUpperCase()} endured the hit so it wouldn't make you sad!`);
+    return;
+  }
   def.hp = Math.max(0, def.hp - dmg);
   flashSprite(isMe ? 'sprEnemy' : 'sprMe');
   syncBars(me(), en());
@@ -310,7 +334,9 @@ async function ballTurn(key) {
   const E = en();
   await say(`${ctx.save.name} threw a ${BALLS[key].label.toUpperCase()}!`);
   $('sprEnemy').style.opacity = 0.15;
-  const { caught, shakes } = tryCapture(E, BALLS[key].mult);
+  // sleeping wilds are twice as easy to catch (official status bonus)
+  const sleepBonus = B.wildRef?.sleeping ? 2 : 1;
+  const { caught, shakes } = tryCapture(E, BALLS[key].mult * sleepBonus);
   for (let i = 0; i < (caught ? 3 : shakes); i++) await say(`…${'tick'.repeat(1)}${i + 1}…`);
   if (caught) {
     await say(`Gotcha! ${E.name.toUpperCase()} was caught!`);
@@ -398,9 +424,11 @@ async function grantExp(baseExp, faintedLvl) {
   if (M.lvl >= 100) return;
   const gain = expGain(baseExp, faintedLvl);
   M.exp += gain;
+  M.friend = Math.min(255, (M.friend ?? 70) + 2); // victories build friendship
   await say(`${M.name.toUpperCase()} gained ${gain} EXP!`);
   while (M.lvl < 100 && M.exp >= expForLevel(M.lvl + 1)) {
     M.lvl++;
+    M.friend = Math.min(255, (M.friend ?? 70) + 3);
     recalcStats(M);
     syncBars(M, en());
     await say(`${M.name.toUpperCase()} grew to Lv${M.lvl}!`);

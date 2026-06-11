@@ -1,7 +1,7 @@
 // HUD + modal UIs: Pokédex (seen/caught %), party & IV summary, PC box, maps.
 import {
   DEX, sprFront, sprArt, displayName, TYPE_COLORS, MOVES, moveName,
-  expForLevel, NATURES,
+  expForLevel, NATURES, rarityOf,
 } from './data.js';
 
 const $ = (id) => document.getElementById(id);
@@ -105,6 +105,7 @@ function showDexDetail(sp) {
     <b>Base stats:</b> HP ${sp.bs.hp} · Atk ${sp.bs.atk} · Def ${sp.bs.def} ·
       SpA ${sp.bs.spa} · SpD ${sp.bs.spd} · Spe ${sp.bs.spe}
     <br><b>Catch rate:</b> ${sp.cr}/255 (~${fullHpPct.toFixed(1)}% per Poké Ball at full HP)
+    <br><b>Encounter rarity:</b> ${rarityOf(sp)}
     <br><b>Gender ratio:</b> ${genderTxt}
     ${sp.leg || sp.myth ? '<br><b style="color:#a060e0">⭐ Legendary/Mythical</b>' : ''}`;
 }
@@ -148,6 +149,8 @@ function showSummary(p, i) {
     <h3 style="text-align:center">${p.shiny ? '✨' : ''}${p.name.toUpperCase()} ${p.gender} — Lv${p.lvl}</h3>
     <div style="text-align:center">${p.types.map(typeTag).join('')}</div>
     <p><b>Nature:</b> ${p.nature}${up ? ` (+${up}/−${down})` : ' (neutral)'}
+    <br><b>Friendship:</b> ${'♥'.repeat(Math.max(1, Math.round((p.friend ?? 70) / 51)))}
+      <span style="opacity:.6">(${p.friend ?? 70}/255)</span>
     <br><b>HP:</b> ${Math.max(0, p.hp)}/${p.maxHp}
     · <b>EXP:</b> ${p.exp - lo}/${hi - lo} to next</p>
     <b>Stats:</b> Atk ${p.atk} · Def ${p.def} · SpA ${p.spa} · SpD ${p.spd} · Spe ${p.spe}

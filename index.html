@@ -152,7 +152,10 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 <script type="importmap">
-{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
 </script>
 </head>
 <body>
@@ -185,6 +188,9 @@
 
 <div id="hud" class="hidden">
   <div id="locname">SOMEWHERE, INDIA</div>
+  <div id="skychip" style="position:absolute;top:52px;left:50%;transform:translateX(-50%);
+    background:rgba(20,24,40,.7);color:#cfd6ff;padding:3px 14px;border-radius:12px;
+    font-size:11px;font-weight:bold"></div>
   <div id="partybar"></div>
   <canvas id="minimap" width="170" height="190"></canvas>
   <div id="hints">WASD move · Shift run · Mouse-drag orbit · Wheel zoom<br>

@@ -3,10 +3,12 @@ import * as THREE from 'three';
 import { loadData, DEX, byName, makeMon, sprFront, displayName, MOVES } from './data.js';
 import {
   buildWorld, lonLatToWorld, heightAt, biomeAt, nearCity, locationName,
-  drawMap, CITIES, CITY_R,
+  drawMap, CITIES, CITY_R, inTallGrass,
 } from './world.js';
 import { Player } from './player.js';
 import { Spawns } from './spawns.js';
+import { Atmosphere } from './weather.js';
+import { Follower } from './follower.js';
 import { initBattle, startBattle } from './battle.js';
 import {
   initUI, refreshPartyBar, setLocation, showPrompt, toast, openDex, openParty,
@@ -37,8 +39,9 @@ const STARTERS = [
   'rowlet', 'litten', 'popplio', 'grookey', 'scorbunny', 'sobble',
 ];
 
-let save = null, scene, camera, renderer, player, spawns, net;
+let save = null, scene, camera, renderer, player, spawns, net, world, atmosphere, follower;
 let startX = 0, startZ = 0;
+const lowSpec = location.search.includes('low');
 let claudeNPC = null;
 let mode = 'title'; // title | world | battle
 let lastSave = 0, mapTick = 0;
@@ -111,6 +114,12 @@ function beginGame() {
   renderer = new THREE.WebGLRenderer({ canvas: $('game'), antialias: true });
   renderer.setSize(innerWidth, innerHeight);
   renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.75;
+  if (!lowSpec) {
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  }
   camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.5, 1500);
   addEventListener('resize', () => {
     renderer.setSize(innerWidth, innerHeight);
@@ -118,7 +127,12 @@ function beginGame() {
     camera.updateProjectionMatrix();
   });
   scene = new THREE.Scene();
-  buildWorld(scene);
+  world = buildWorld(scene, { lowSpec });
+  atmosphere = new Atmosphere(scene, world);
+  follower = new Follower(scene);
+
+  // older saves predate the friendship stat
+  for (const p of [...save.party, ...save.box]) p.friend ??= 70;
 
   const blr = CITIES.find((c) => c.name === 'BENGALURU');
   startX = blr.x; startZ = blr.z;
@@ -146,6 +160,7 @@ function beginGame() {
   refreshPartyBar();
   bindKeys();
   mode = 'world';
+  window.__game = { atmosphere, player, save, world }; // debug/e2e handle
   toast(`Welcome to INDIA, ${save.name}! Wild Pokémon await.`);
   if (location.search.includes('battletest')) {
     setTimeout(async () => {
@@ -208,13 +223,36 @@ function bindKeys() {
 }
 
 let nearSpawn = null, nearPokecenter = null, nearClaude = false;
+let grassCooldown = 0;
 function tick(dt, now) {
   if (mode !== 'world') return;
   player.frozen = anyModalOpen();
+  const px0 = player.pos.x, pz0 = player.pos.z;
   player.update(dt);
-  spawns.update(dt, player, startX, startZ);
+  const moved = Math.hypot(player.pos.x - px0, player.pos.z - pz0) > 0.01;
+  const biome = biomeAt(player.pos.x, player.pos.z);
+  atmosphere.update(dt, player.pos.x, player.pos.z, biome);
+  follower.setMon(save.party[0]);
+  follower.update(dt, player, atmosphere, moved);
+  spawns.update(dt, player, startX, startZ, atmosphere);
   net.update(dt);
   save.playSeconds += dt;
+
+  // tall grass: surprise encounters while walking through it
+  grassCooldown -= dt;
+  if (moved && grassCooldown <= 0 && !player.frozen
+    && !location.search.includes('nograss')
+    && inTallGrass(player.pos.x, player.pos.z)) {
+    if (Math.random() < dt * 0.4) {
+      grassCooldown = 5;
+      const id = spawns.pickFromPool(biome === 'city' ? 'plains' : biome, atmosphere);
+      if (id) {
+        const mon = makeMon(id, spawns.levelFor(player.pos.x, player.pos.z, startX, startZ));
+        battleWild({ mon, fromGrass: true });
+        return;
+      }
+    }
+  }
 
   // proximity prompts
   nearSpawn = spawns.nearest(player.pos.x, player.pos.z);
@@ -230,6 +268,7 @@ function tick(dt, now) {
   if ((mapTick -= dt) <= 0) {
     mapTick = 0.25;
     setLocation(locationName(player.pos.x, player.pos.z));
+    $('skychip').textContent = atmosphere.label();
     drawMap($('minimap'), player.pos.x, player.pos.z, player.camYaw + Math.PI, false);
   }
   if (now - lastSave > 10000) {
@@ -260,9 +299,13 @@ async function interact() {
 async function battleWild(s) {
   mode = 'battle';
   player.frozen = true;
-  const result = await startBattle({ wild: s.mon, biome: biomeAt(player.pos.x, player.pos.z) });
-  if (result.outcome !== 'ran') spawns.remove(s);
-  else if (!s.legendary) spawns.remove(s); // it flees too
+  const result = await startBattle({
+    wild: s.mon,
+    wildRef: s,
+    weather: atmosphere.battleWeather(),
+    biome: biomeAt(player.pos.x, player.pos.z),
+  });
+  if (!s.fromGrass) spawns.remove(s); // billboard spawns leave either way
   afterBattle(result);
 }
 async function battleClaude() {
@@ -270,6 +313,7 @@ async function battleClaude() {
   player.frozen = true;
   const result = await startBattle({
     trainer: { name: 'CLAUDE', team: claudeTeam() },
+    weather: atmosphere.battleWeather(),
     biome: 'city',
   });
   if (result.outcome === 'win') {

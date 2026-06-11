@@ -43,7 +43,8 @@ export class Player {
   update(dt) {
     if (!this.frozen) {
       const fwd = (this.keys.KeyW ? 1 : 0) - (this.keys.KeyS ? 1 : 0);
-      const strafe = (this.keys.KeyD ? 1 : 0) - (this.keys.KeyA ? 1 : 0);
+      // Screen-right for a camera looking along +yaw is -x, so A is positive.
+      const strafe = (this.keys.KeyA ? 1 : 0) - (this.keys.KeyD ? 1 : 0);
       if (fwd || strafe) {
         const speed = (this.keys.ShiftLeft || this.keys.ShiftRight) ? 30 : 13;
         const dir = Math.atan2(strafe, fwd) + this.camYaw;

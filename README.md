@@ -6,6 +6,7 @@ southern forests, eastern jungles and 7,000 km of coastline — with **all 898
 Pokémon of Generations 1–8** living in biome-appropriate regions.
 
 ![World](docs/screenshot-world.png)
+![Night](docs/screenshot-night.png)
 ![Battle](docs/screenshot-battle.png)
 
 ## Play
@@ -20,8 +21,24 @@ python -m http.server 8000        # any static server works
 ## What's in the game
 
 - **Open world**: walk/run across India in third person. 20 real cities
-  (Bengaluru is home), each with a Pokécenter that heals your party and
-  restocks balls. Minimap + full region map (M).
+  (Bengaluru is home) with houses, street lamps and Pokécenters, connected by
+  a road network with villages along the way. Physical sky with a full
+  **day/night cycle** (1 game hour = 1 real minute), sun shadows, animated
+  water, and biome vegetation — palms on the coast, pines in the hills,
+  snow pines and rocks in the Himalaya, cacti in the Thar. Minimap + full
+  region map (M). Add `?low` to the URL on weak GPUs.
+- **Tall grass**: patches everywhere — wild Pokémon cluster in them, and
+  walking through tall grass triggers surprise encounters.
+- **Weather**: per-biome rain, snow, sandstorms, fog and harsh sun with
+  particle effects. Weather and time change what spawns (ghost/dark at
+  night, water types in rain…) and modify battle damage (rain boosts water
+  moves 1.5x and halves fire, sun the reverse).
+- **Friendship & follower**: your lead Pokémon walks behind you and emotes
+  by mood, weather and friendship. Friendship grows by walking, battling
+  and levelling — high friendship sharpens crits and can let a Pokémon
+  endure a lethal hit at 1 HP.
+- **Wild temperament**: hard-hitting species chase you, fast frail ones
+  flee, and some sleep at night (sleeping wilds are twice as easy to catch).
 - **All 898 Pokémon, real data**: base stats, types, catch rates, gender
   ratios, level-up learnsets, evolution levels and dex entries baked from
   [PokéAPI](https://pokeapi.co) (the same game data Bulbapedia documents).

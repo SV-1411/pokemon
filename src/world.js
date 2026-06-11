@@ -1,8 +1,9 @@
-// The open world: a stylized 3D map of India. Terrain is generated from a
-// hand-traced coastline polygon (lon/lat), with the Himalaya rising in the
-// north, the Thar desert in the west, the Western Ghats ridge, forest in the
-// south, jungle in the northeast, ocean all around, and 20 real cities.
+// The open world: a stylized 3D map of India with a physical sky + day/night
+// sun, soft shadows, animated water, a road network with houses and villages,
+// biome-specific vegetation (palms, pines, broadleaf, cacti), street lamps,
+// and tall-grass encounter patches.
 import * as THREE from 'three';
+import { Sky } from 'three/addons/objects/Sky.js';
 
 // ---------- geography ----------
 export const SCALE = 60; // world units per degree
@@ -11,7 +12,6 @@ export const lonLatToWorld = (lon, lat) => [(lon - CLON) * SCALE, (CLAT - lat) *
 export const worldToLonLat = (x, z) => [x / SCALE + CLON, CLAT - z / SCALE];
 
 // Stylized India coastline + land border, clockwise from the Rann of Kutch.
-// (Bangladesh/Nepal areas are folded into the playable landmass.)
 export const COAST = [
   [68.5,23.8],[70.2,22.8],[69.0,22.3],[70.0,20.8],[72.0,20.7],[72.7,19.0],
   [73.5,16.0],[74.5,13.0],[76.0,9.5],[77.4,8.0],[78.3,8.8],[79.4,10.3],
@@ -31,7 +31,7 @@ export function insidePoly(lon, lat, poly = COAST) {
   }
   return inside;
 }
-function distToCoast(lon, lat) { // degrees, point-to-segment over all edges
+function distToCoast(lon, lat) {
   let best = Infinity;
   for (let i = 0, j = COAST.length - 1; i < COAST.length; j = i++) {
     const [x1, y1] = COAST[j], [x2, y2] = COAST[i];
@@ -43,7 +43,7 @@ function distToCoast(lon, lat) { // degrees, point-to-segment over all edges
   return Math.sqrt(best);
 }
 
-// ---------- cities ----------
+// ---------- cities / landmarks ----------
 export const CITIES = [
   { name: 'DELHI', lon: 77.2, lat: 28.6 }, { name: 'MUMBAI', lon: 72.9, lat: 19.1 },
   { name: 'KOLKATA', lon: 88.4, lat: 22.6 }, { name: 'CHENNAI', lon: 80.3, lat: 13.1 },
@@ -56,13 +56,12 @@ export const CITIES = [
   { name: 'PATNA', lon: 85.1, lat: 25.6 }, { name: 'NAGPUR', lon: 79.1, lat: 21.1 },
   { name: 'VIZAG', lon: 83.2, lat: 17.7 }, { name: 'SRINAGAR', lon: 74.8, lat: 34.1 },
 ];
-export const CITY_R = 24; // world units
+export const CITY_R = 24;
 for (const c of CITIES) {
   const [x, z] = lonLatToWorld(c.lon, c.lat);
   c.x = x; c.z = z;
 }
 
-// Fixed legendary encounter landmarks (species name -> resolved to id at runtime).
 export const LANDMARKS = [
   { species: 'articuno', lvl: 70, lon: 77.9, lat: 34.6, label: 'FROZEN SHRINE' },
   { species: 'zapdos', lvl: 70, lon: 79.4, lat: 21.5, label: 'OLD POWER PLANT' },
@@ -123,17 +122,16 @@ export function heightAt(x, z) {
   if (!insidePoly(lon, lat)) return -7;
   const coastD = distToCoast(lon, lat);
   let h = 2 + fbm(x * 0.012, z * 0.012) * 3;
-  if (coastD < 0.55) h = 0.8 + (coastD / 0.55) * 1.6; // beaches slope to the sea
+  if (coastD < 0.55) h = 0.8 + (coastD / 0.55) * 1.6;
   if (lat >= 27.4) {
     const t = Math.min(1, (lat - 27.4) / 2);
     h += t * t * 26 + (lat > 29 ? (lat - 29) * 16 : 0) + fbm(x * 0.03, z * 0.03) * t * 22;
   }
-  if (lon > 88.5 && lat > 25.5) h += (lat - 25.5) * 6 + fbm(x * 0.04, z * 0.04) * 8; // NE hills
-  if (lat > 8.5 && lat < 20.5) { // Western Ghats ridge
+  if (lon > 88.5 && lat > 25.5) h += (lat - 25.5) * 6 + fbm(x * 0.04, z * 0.04) * 8;
+  if (lat > 8.5 && lat < 20.5) {
     const d = lon - ghatsLon(lat);
     h += 11 * Math.exp(-d * d / 0.22) * (0.7 + fbm(x * 0.05, z * 0.05) * 0.6);
   }
-  // flatten near cities so streets are level
   for (const c of CITIES) {
     const d = Math.hypot(x - c.x, z - c.z);
     if (d < CITY_R + 14) {
@@ -147,22 +145,151 @@ export function heightAt(x, z) {
 }
 
 const BIOME_COLORS = {
-  coast: [0.86, 0.79, 0.56], desert: [0.87, 0.74, 0.44], plains: [0.49, 0.68, 0.36],
-  forest: [0.27, 0.55, 0.29], jungle: [0.21, 0.48, 0.27], hills: [0.45, 0.55, 0.36],
-  himalaya: [0.52, 0.5, 0.49], ocean: [0.07, 0.16, 0.3],
+  coast: [0.87, 0.8, 0.58], desert: [0.89, 0.76, 0.46], plains: [0.5, 0.69, 0.36],
+  forest: [0.28, 0.56, 0.3], jungle: [0.21, 0.49, 0.27], hills: [0.46, 0.56, 0.36],
+  himalaya: [0.54, 0.52, 0.5], ocean: [0.07, 0.16, 0.3],
 };
 
+// ---------- road network ----------
+export const ROADS = []; // [{points: [[x,z],...]}]
+(function buildRoadGraph() {
+  const edges = new Set();
+  for (const a of CITIES) {
+    const near = CITIES.filter((b) => b !== a)
+      .sort((p, q) => Math.hypot(p.x - a.x, p.z - a.z) - Math.hypot(q.x - a.x, q.z - a.z))
+      .slice(0, 2);
+    for (const b of near) {
+      const key = [a.name, b.name].sort().join('|');
+      if (edges.has(key)) continue;
+      edges.add(key);
+      const len = Math.hypot(b.x - a.x, b.z - a.z);
+      const n = Math.max(2, Math.ceil(len / 10));
+      const pts = [];
+      for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        // gentle bend so roads don't look laser-straight
+        const bend = Math.sin(t * Math.PI) * len * 0.04;
+        const px = a.x + (b.x - a.x) * t - (b.z - a.z) / len * bend;
+        const pz = a.z + (b.z - a.z) * t + (b.x - a.x) / len * bend;
+        if (isLand(px, pz)) pts.push([px, pz]);
+      }
+      if (pts.length > 2) ROADS.push({ points: pts, from: a.name, to: b.name });
+    }
+  }
+})();
+export function nearRoad(x, z, r = 6) {
+  for (const road of ROADS) {
+    for (const [px, pz] of road.points) {
+      if (Math.abs(px - x) < r + 10 && Math.abs(pz - z) < r + 10
+        && Math.hypot(px - x, pz - z) < r) return true;
+    }
+  }
+  return false;
+}
+
+export const nearCity = (x, z, r) => CITIES.find((c) => Math.hypot(x - c.x, z - c.z) < r);
+
+// ---------- tall grass (encounter patches) ----------
+export const TALL_GRASS = []; // {x, z, r}
+(function placeGrass() {
+  let placed = 0;
+  for (let i = 0; placed < 520 && i < 30000; i++) {
+    const x = (hash(i, 1234) - 0.5) * 1800, z = (hash(i, 5678) - 0.5) * 1900;
+    const b = biomeAt(x, z);
+    if (!['plains', 'forest', 'jungle', 'coast', 'hills'].includes(b)) continue;
+    if (nearCity(x, z, CITY_R + 12)) continue;
+    TALL_GRASS.push({ x, z, r: 7 + hash(i, 9) * 8 });
+    placed++;
+  }
+})();
+export function inTallGrass(x, z) {
+  for (const g of TALL_GRASS) {
+    if (Math.abs(g.x - x) < g.r && Math.abs(g.z - z) < g.r
+      && Math.hypot(g.x - x, g.z - z) < g.r) return g;
+  }
+  return null;
+}
+
+// ---------- canvas textures ----------
+function grassBladeTexture(dark) {
+  const cv = document.createElement('canvas');
+  cv.width = 64; cv.height = 64;
+  const g = cv.getContext('2d');
+  for (let i = 0; i < 26; i++) {
+    const x = 4 + Math.random() * 56, h = 26 + Math.random() * 34;
+    const lean = (Math.random() - 0.5) * 14;
+    const grad = g.createLinearGradient(x, 64, x + lean, 64 - h);
+    grad.addColorStop(0, dark ? '#2e7a2c' : '#46953c');
+    grad.addColorStop(1, dark ? '#6cc456' : '#8ed468');
+    g.strokeStyle = grad; g.lineWidth = 2.6;
+    g.beginPath(); g.moveTo(x, 64); g.quadraticCurveTo(x + lean * 0.4, 64 - h * 0.6, x + lean, 64 - h); g.stroke();
+  }
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function groundDetailTexture() {
+  const cv = document.createElement('canvas');
+  cv.width = 128; cv.height = 128;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 2600; i++) {
+    const v = 225 + Math.floor(Math.random() * 30);
+    g.fillStyle = `rgb(${v},${v},${v})`;
+    g.fillRect(Math.random() * 128, Math.random() * 128, 2, 2);
+  }
+  const t = new THREE.CanvasTexture(cv);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(260, 270);
+  return t;
+}
+// two crossed quads, 1x1, pivot at bottom center
+function crossQuadGeometry() {
+  const geo = new THREE.BufferGeometry();
+  const verts = [], uvs = [], idx = [];
+  for (const rot of [0, Math.PI / 2]) {
+    const c = Math.cos(rot) * 0.5, s = Math.sin(rot) * 0.5;
+    const base = verts.length / 3;
+    verts.push(-c, 0, -s, c, 0, s, c, 1, s, -c, 1, -s);
+    uvs.push(0, 0, 1, 0, 1, 1, 0, 1);
+    idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals(); // Lambert renders black without normals
+  return geo;
+}
+
 // ---------- world construction ----------
-export function buildWorld(scene) {
-  scene.background = new THREE.Color(0x87b8e8);
-  scene.fog = new THREE.Fog(0x87b8e8, 250, 700);
-  scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x3a5a3a, 1.1));
-  const sun = new THREE.DirectionalLight(0xfff2d8, 1.6);
+export function buildWorld(scene, opts = {}) {
+  const lowSpec = !!opts.lowSpec;
+
+  // sky + sun
+  const sky = new Sky();
+  sky.scale.setScalar(4500);
+  scene.add(sky);
+  const su = sky.material.uniforms;
+  su.turbidity.value = 6; su.rayleigh.value = 1.6;
+  su.mieCoefficient.value = 0.004; su.mieDirectionalG.value = 0.7;
+
+  const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x4a6a40, 0.9);
+  scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xfff2d8, 2.2);
   sun.position.set(150, 300, 100);
-  scene.add(sun);
+  if (!lowSpec) {
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    const sc = sun.shadow.camera;
+    sc.left = -110; sc.right = 110; sc.top = 110; sc.bottom = -110;
+    sc.near = 50; sc.far = 700;
+    sun.shadow.bias = -0.0008;
+  }
+  scene.add(sun, sun.target);
+  scene.fog = new THREE.Fog(0x9fc3e8, 260, 760);
 
   // terrain
-  const W = 1840, H = 1960, SEG = 230;
+  const W = 1840, H = 1960, SEG = 250;
   const geo = new THREE.PlaneGeometry(W, H, SEG, SEG);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
@@ -173,61 +300,327 @@ export function buildWorld(scene) {
     pos.setY(i, h);
     const biome = biomeAt(x, z);
     let c = BIOME_COLORS[biome] ?? BIOME_COLORS.plains;
-    if (biome === 'himalaya' && h > 60) c = [0.93, 0.94, 0.97];          // snowcaps
+    if (biome === 'himalaya' && h > 60) c = [0.93, 0.94, 0.97];
     else if (biome === 'himalaya' && h > 40) c = [0.7, 0.7, 0.72];
-    const shade = 0.92 + fbm(x * 0.05, z * 0.05) * 0.16;
+    const shade = 0.9 + fbm(x * 0.05, z * 0.05) * 0.2;
     colors[i * 3] = c[0] * shade; colors[i * 3 + 1] = c[1] * shade; colors[i * 3 + 2] = c[2] * shade;
   }
   geo.computeVertexNormals();
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  const terrain = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  const terrain = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+    vertexColors: true, map: groundDetailTexture(),
+  }));
+  terrain.receiveShadow = !lowSpec;
   scene.add(terrain);
 
-  // ocean
-  const ocean = new THREE.Mesh(
-    new THREE.PlaneGeometry(4200, 4200),
-    new THREE.MeshLambertMaterial({ color: 0x2a6aa8, transparent: true, opacity: 0.88 }),
+  // animated water
+  const waterUniforms = {
+    uTime: { value: 0 },
+    uSunDir: { value: new THREE.Vector3(0.4, 0.8, 0.2) },
+  };
+  const water = new THREE.Mesh(
+    new THREE.PlaneGeometry(4200, 4200, 48, 48),
+    new THREE.ShaderMaterial({
+      transparent: true,
+      uniforms: waterUniforms,
+      vertexShader: `
+        uniform float uTime;
+        varying vec3 vWorld;
+        void main(){
+          vec3 p = position;
+          p.z += sin(p.x*0.05 + uTime*1.1)*0.35 + cos(p.y*0.04 + uTime*0.8)*0.3;
+          vec4 wp = modelMatrix * vec4(p,1.0);
+          vWorld = wp.xyz;
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }`,
+      fragmentShader: `
+        uniform float uTime;
+        uniform vec3 uSunDir;
+        varying vec3 vWorld;
+        void main(){
+          vec3 deep = vec3(0.05,0.22,0.38);
+          vec3 shallow = vec3(0.16,0.5,0.62);
+          float n = sin(vWorld.x*0.22 + uTime*1.6)*0.5 + cos(vWorld.z*0.19 - uTime*1.2)*0.5;
+          vec3 nrm = normalize(vec3(n*0.12, 1.0, n*0.1));
+          vec3 view = normalize(cameraPosition - vWorld);
+          float fres = pow(1.0 - max(dot(view, nrm), 0.0), 2.0);
+          vec3 col = mix(deep, shallow, 0.35 + 0.35*n) + fres*vec3(0.25,0.3,0.32);
+          float glint = pow(max(dot(reflect(-normalize(uSunDir), nrm), view), 0.0), 90.0);
+          col += glint * vec3(1.0,0.95,0.8) * 0.9;
+          gl_FragColor = vec4(col, 0.93);
+        }`,
+    }),
   );
-  ocean.rotation.x = -Math.PI / 2;
-  ocean.position.y = 0.45;
-  scene.add(ocean);
+  water.rotation.x = -Math.PI / 2;
+  water.position.y = 0.45;
+  scene.add(water);
 
-  scatterProps(scene);
-  for (const c of CITIES) buildCity(scene, c);
+  // roads
+  const roadMat = new THREE.MeshLambertMaterial({ color: 0x6e6a62 });
+  for (const road of ROADS) {
+    const pts = road.points;
+    const verts = [], idx = [];
+    const HW = 2.6;
+    for (let i = 0; i < pts.length; i++) {
+      const [x, z] = pts[i];
+      const [nx, nz] = pts[Math.min(i + 1, pts.length - 1)];
+      const [px2, pz2] = pts[Math.max(i - 1, 0)];
+      let dx = nx - px2, dz = nz - pz2;
+      const len = Math.hypot(dx, dz) || 1;
+      dx /= len; dz /= len;
+      const y = heightAt(x, z) + 0.22;
+      verts.push(x - dz * HW, y, z + dx * HW, x + dz * HW, y, z - dx * HW);
+      if (i > 0) {
+        const b = i * 2;
+        idx.push(b - 2, b - 1, b, b - 1, b + 1, b);
+      }
+    }
+    const rg = new THREE.BufferGeometry();
+    rg.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    rg.setIndex(idx);
+    rg.computeVertexNormals();
+    scene.add(new THREE.Mesh(rg, roadMat));
+  }
+
+  plantVegetation(scene, lowSpec);
+  plantTallGrass(scene);
+  const lampMats = [];
+  for (const c of CITIES) buildCity(scene, c, lampMats, lowSpec);
+  buildVillages(scene, lowSpec);
   for (const l of LANDMARKS) buildLandmark(scene, l);
-  return { terrain, ocean };
+
+  // ---------- runtime API (driven by weather.js / main.js) ----------
+  const sunDir = new THREE.Vector3();
+  return {
+    sun, hemi, sky, water,
+    // elevation in degrees above horizon; t handles colors via the Sky shader
+    setSun(elevDeg, azimDeg) {
+      const phi = THREE.MathUtils.degToRad(90 - elevDeg);
+      const theta = THREE.MathUtils.degToRad(azimDeg);
+      sunDir.setFromSphericalCoords(1, phi, theta);
+      su.sunPosition.value.copy(sunDir);
+      waterUniforms.uSunDir.value.copy(sunDir);
+      const day = Math.max(0, Math.min(1, (elevDeg + 4) / 18));
+      sun.intensity = 2.4 * day;
+      hemi.intensity = 0.25 + 0.75 * day;
+      for (const m of lampMats) m.emissiveIntensity = day < 0.35 ? 2.2 : 0;
+      return day; // 0 = night, 1 = full day
+    },
+    placeSunShadow(px, pz) {
+      sun.position.set(px + sunDir.x * 400, Math.max(120, sunDir.y * 400), pz + sunDir.z * 400);
+      sun.target.position.set(px, 0, pz);
+    },
+    tick(dt) { waterUniforms.uTime.value += dt; },
+    setFog(color, near, far) {
+      scene.fog.color.set(color);
+      scene.fog.near = near; scene.fog.far = far;
+      scene.background = null; // sky dome shows through
+    },
+  };
 }
 
-function scatterProps(scene) {
-  // trees (cone+trunk), denser in forest/jungle
-  const treeGeo = new THREE.ConeGeometry(1.6, 4.5, 6);
-  const treeMat = new THREE.MeshLambertMaterial({ color: 0x2d6a2d });
-  const trees = new THREE.InstancedMesh(treeGeo, treeMat, 2600);
-  const rockGeo = new THREE.DodecahedronGeometry(1.4);
+// ---------- vegetation ----------
+// Multi-part instanced "prefabs": each part is an InstancedMesh sharing the
+// same per-instance transform list.
+function instancedPrefab(scene, parts, matrices, shadows) {
+  for (const { geo, mat, local } of parts) {
+    const im = new THREE.InstancedMesh(geo, mat, matrices.length);
+    const m = new THREE.Matrix4();
+    matrices.forEach((world, i) => {
+      m.copy(world);
+      if (local) m.multiply(local);
+      im.setMatrixAt(i, m);
+    });
+    im.castShadow = shadows;
+    scene.add(im);
+  }
+}
+const M4 = (x, y, z, s = 1, ry = 0) =>
+  new THREE.Matrix4().compose(
+    new THREE.Vector3(x, y, z),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)),
+    new THREE.Vector3(s, s, s),
+  );
+const local = (x, y, z, sx = 1, sy = 1, sz = 1, rz = 0) =>
+  new THREE.Matrix4().compose(
+    new THREE.Vector3(x, y, z),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, rz)),
+    new THREE.Vector3(sx, sy, sz),
+  );
+
+function plantVegetation(scene, lowSpec) {
+  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x6a4a2a });
+  const palmTrunkMat = new THREE.MeshLambertMaterial({ color: 0x8a6a42 });
+  const leafMat = new THREE.MeshLambertMaterial({ color: 0x2e7a30 });
+  const jungleLeafMat = new THREE.MeshLambertMaterial({ color: 0x1f6028 });
+  const pineMat = new THREE.MeshLambertMaterial({ color: 0x2a5a38 });
+  const snowPineMat = new THREE.MeshLambertMaterial({ color: 0x8fae9a });
+  const palmLeafMat = new THREE.MeshLambertMaterial({ color: 0x3a8a3a });
+  const cactusMat = new THREE.MeshLambertMaterial({ color: 0x4a8a4a });
   const rockMat = new THREE.MeshLambertMaterial({ color: 0x8a8278 });
-  const rocks = new THREE.InstancedMesh(rockGeo, rockMat, 700);
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3();
-  let ti = 0, ri = 0, guard = 0;
-  while ((ti < 2600 || ri < 700) && guard++ < 60000) {
+
+  const sets = {
+    broadleaf: [], jungleTree: [], pine: [], snowPine: [], palm: [], cactus: [], rock: [],
+  };
+  const cap = lowSpec ? 0.5 : 1;
+  const want = {
+    broadleaf: 1400 * cap, jungleTree: 700 * cap, pine: 900 * cap, snowPine: 400 * cap,
+    palm: 500 * cap, cactus: 350 * cap, rock: 600 * cap,
+  };
+  let guard = 0;
+  const need = () => Object.keys(want).some((k) => sets[k].length < want[k]);
+  while (need() && guard++ < 90000) {
     const x = (hash(guard, 17) - 0.5) * 1800, z = (hash(guard, 91) - 0.5) * 1900;
     const b = biomeAt(x, z);
-    if (b === 'ocean' || nearCity(x, z, CITY_R + 6)) continue;
+    if (b === 'ocean' || nearCity(x, z, CITY_R + 8) || nearRoad(x, z, 5)) continue;
     const h = heightAt(x, z);
-    if (ti < 2600 && (b === 'forest' || b === 'jungle' || (b === 'plains' && hash(guard, 3) < 0.35)
-        || (b === 'hills' && hash(guard, 5) < 0.3))) {
-      const sc = 0.8 + hash(guard, 7) * 1.3;
-      m.compose(new THREE.Vector3(x, h + 2.2 * sc, z), q, s.set(sc, sc, sc));
-      trees.setMatrixAt(ti++, m);
-    } else if (ri < 700 && (b === 'himalaya' || b === 'desert' || b === 'hills')) {
-      const sc = 0.7 + hash(guard, 11) * 1.6;
-      m.compose(new THREE.Vector3(x, h + 0.5, z), q, s.set(sc, sc * 0.8, sc));
-      rocks.setMatrixAt(ri++, m);
+    const s = 0.75 + hash(guard, 7) * 0.8;
+    const ry = hash(guard, 19) * 6.28;
+    const mat = M4(x, h, z, s, ry);
+    if (b === 'forest' || (b === 'plains' && hash(guard, 3) < 0.3)) {
+      if (sets.broadleaf.length < want.broadleaf) sets.broadleaf.push(mat);
+    } else if (b === 'jungle') {
+      if (sets.jungleTree.length < want.jungleTree) sets.jungleTree.push(mat);
+    } else if (b === 'hills') {
+      if (sets.pine.length < want.pine) sets.pine.push(mat);
+    } else if (b === 'himalaya' && h < 70) {
+      if (h < 45 && sets.snowPine.length < want.snowPine) sets.snowPine.push(mat);
+      else if (sets.rock.length < want.rock) sets.rock.push(mat);
+    } else if (b === 'coast') {
+      if (hash(guard, 5) < 0.7 && sets.palm.length < want.palm) sets.palm.push(mat);
+    } else if (b === 'desert') {
+      if (hash(guard, 5) < 0.5) { if (sets.cactus.length < want.cactus) sets.cactus.push(mat); }
+      else if (sets.rock.length < want.rock) sets.rock.push(mat);
     }
   }
-  trees.count = ti; rocks.count = ri;
-  scene.add(trees, rocks);
+
+  const cyl = (r1, r2, h) => new THREE.CylinderGeometry(r1, r2, h, 6);
+  const blob = (r) => new THREE.IcosahedronGeometry(r, 1);
+  const cone = (r, h) => new THREE.ConeGeometry(r, h, 7);
+  const sh = !lowSpec;
+
+  instancedPrefab(scene, [
+    { geo: cyl(0.3, 0.45, 3.2), mat: trunkMat, local: local(0, 1.6, 0) },
+    { geo: blob(2.3), mat: leafMat, local: local(0, 4.6, 0, 1, 0.92, 1) },
+    { geo: blob(1.5), mat: leafMat, local: local(1.2, 3.8, 0.7, 1, 0.85, 1) },
+  ], sets.broadleaf, sh);
+  instancedPrefab(scene, [
+    { geo: cyl(0.35, 0.5, 4.2), mat: trunkMat, local: local(0, 2.1, 0) },
+    { geo: blob(2.8), mat: jungleLeafMat, local: local(0, 5.6, 0, 1.15, 0.8, 1.15) },
+    { geo: blob(1.8), mat: jungleLeafMat, local: local(-1.5, 4.4, 0.9, 1, 0.8, 1) },
+  ], sets.jungleTree, sh);
+  instancedPrefab(scene, [
+    { geo: cyl(0.25, 0.35, 2.4), mat: trunkMat, local: local(0, 1.2, 0) },
+    { geo: cone(2.1, 3.2), mat: pineMat, local: local(0, 3.6, 0) },
+    { geo: cone(1.6, 2.6), mat: pineMat, local: local(0, 5.3, 0) },
+    { geo: cone(1.1, 2.1), mat: pineMat, local: local(0, 6.8, 0) },
+  ], sets.pine, sh);
+  instancedPrefab(scene, [
+    { geo: cyl(0.25, 0.35, 2.4), mat: trunkMat, local: local(0, 1.2, 0) },
+    { geo: cone(2.0, 3.0), mat: snowPineMat, local: local(0, 3.5, 0) },
+    { geo: cone(1.4, 2.4), mat: snowPineMat, local: local(0, 5.1, 0) },
+  ], sets.snowPine, sh);
+  instancedPrefab(scene, [
+    { geo: cyl(0.22, 0.3, 5.2), mat: palmTrunkMat, local: local(0.35, 2.6, 0, 1, 1, 1, 0.16) },
+    { geo: blob(1.6), mat: palmLeafMat, local: local(1.1, 5.4, 0, 1.6, 0.45, 1.6) },
+  ], sets.palm, sh);
+  instancedPrefab(scene, [
+    { geo: cyl(0.5, 0.55, 3.4), mat: cactusMat, local: local(0, 1.7, 0) },
+    { geo: cyl(0.28, 0.3, 1.6), mat: cactusMat, local: local(0.85, 2.4, 0, 1, 1, 1, 1.1) },
+    { geo: cyl(0.28, 0.3, 1.3), mat: cactusMat, local: local(-0.8, 1.9, 0, 1, 1, 1, -1.2) },
+  ], sets.cactus, sh);
+  instancedPrefab(scene, [
+    { geo: new THREE.DodecahedronGeometry(1.4), mat: rockMat, local: local(0, 0.6, 0, 1, 0.75, 1) },
+  ], sets.rock, sh);
 }
-export const nearCity = (x, z, r) => CITIES.find((c) => Math.hypot(x - c.x, z - c.z) < r);
+
+function plantTallGrass(scene) {
+  const tallTex = grassBladeTexture(true);
+  const tallMat = new THREE.MeshLambertMaterial({
+    map: tallTex, alphaTest: 0.35, side: THREE.DoubleSide,
+  });
+  const geo = crossQuadGeometry();
+  const mats = [];
+  for (const g of TALL_GRASS) {
+    const tufts = Math.floor(g.r * g.r * 0.45);
+    for (let i = 0; i < tufts; i++) {
+      const a = hash(g.x * 7 + i, 3) * 6.28, d = Math.sqrt(hash(i, g.z)) * g.r;
+      const x = g.x + Math.sin(a) * d, z = g.z + Math.cos(a) * d;
+      const s = 1.5 + hash(i, 77) * 0.9;
+      mats.push(new THREE.Matrix4().compose(
+        new THREE.Vector3(x, heightAt(x, z), z),
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, hash(i, 13) * 3.14, 0)),
+        new THREE.Vector3(s * 1.4, s * 1.5, s * 1.4),
+      ));
+    }
+  }
+  const im = new THREE.InstancedMesh(geo, tallMat, mats.length);
+  mats.forEach((m, i) => im.setMatrixAt(i, m));
+  scene.add(im);
+
+  // short decorative grass sprinkled through green biomes
+  const shortMat = new THREE.MeshLambertMaterial({
+    map: grassBladeTexture(false), alphaTest: 0.35, side: THREE.DoubleSide,
+  });
+  const sm = [];
+  for (let i = 0; sm.length < 5000 && i < 40000; i++) {
+    const x = (hash(i, 401) - 0.5) * 1800, z = (hash(i, 402) - 0.5) * 1900;
+    const b = biomeAt(x, z);
+    if (!['plains', 'forest', 'jungle', 'coast'].includes(b)) continue;
+    if (nearCity(x, z, CITY_R + 6)) continue;
+    const s = 1.1 + hash(i, 403) * 0.9;
+    sm.push(new THREE.Matrix4().compose(
+      new THREE.Vector3(x, heightAt(x, z), z),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, hash(i, 404) * 3.14, 0)),
+      new THREE.Vector3(s, s, s),
+    ));
+  }
+  const im2 = new THREE.InstancedMesh(crossQuadGeometry(), shortMat, sm.length);
+  sm.forEach((m, i) => im2.setMatrixAt(i, m));
+  scene.add(im2);
+}
+
+// ---------- buildings ----------
+const PLASTER = [0xf2e8d8, 0xf8d8b8, 0xd8e8f0, 0xe8e0c8, 0xf0d8d0];
+function buildHouse(parent, x, y, z, ry, seed, shadows) {
+  const g = new THREE.Group();
+  const w = 4 + hash(seed, 2) * 2.2, d = 3.4 + hash(seed, 3) * 1.6, hh = 2.8 + hash(seed, 4);
+  const wall = new THREE.MeshLambertMaterial({ color: PLASTER[seed % PLASTER.length] });
+  const base = new THREE.Mesh(new THREE.BoxGeometry(w, hh, d), wall);
+  base.position.y = hh / 2;
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.hypot(w, d) * 0.62, 1.8, 4),
+    new THREE.MeshLambertMaterial({ color: 0xb5532f }));
+  roof.position.y = hh + 0.9;
+  roof.rotation.y = Math.PI / 4;
+  roof.scale.set(w / Math.hypot(w, d) * 1.42, 1, d / Math.hypot(w, d) * 1.42);
+  const door = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.7, 0.12),
+    new THREE.MeshLambertMaterial({ color: 0x5a3a22 }));
+  door.position.set(0, 0.85, d / 2 + 0.06);
+  const winMat = new THREE.MeshLambertMaterial({ color: 0x2a3a55 });
+  for (const wx of [-w / 4 - 0.3, w / 4 + 0.3]) {
+    const win = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.8, 0.1), winMat);
+    win.position.set(wx, hh * 0.6, d / 2 + 0.05);
+    g.add(win);
+  }
+  base.castShadow = shadows; roof.castShadow = shadows;
+  g.add(base, roof, door);
+  g.position.set(x, y, z);
+  g.rotation.y = ry;
+  parent.add(g);
+}
+function buildLamp(parent, x, y, z, lampMats, shadows) {
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 5, 6),
+    new THREE.MeshLambertMaterial({ color: 0x3a3a44 }));
+  pole.position.set(x, y + 2.5, z);
+  pole.castShadow = shadows;
+  const mat = new THREE.MeshLambertMaterial({
+    color: 0xfff2c8, emissive: 0xffd34d, emissiveIntensity: 0,
+  });
+  lampMats.push(mat);
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.38, 10, 8), mat);
+  bulb.position.set(x, y + 5.1, z);
+  parent.add(pole, bulb);
+}
 
 function makeLabel(text, color = '#ffffff', size = 26) {
   const cv = document.createElement('canvas');
@@ -247,40 +640,65 @@ function makeLabel(text, color = '#ffffff', size = 26) {
   return spr;
 }
 
-function buildCity(scene, c) {
+function buildCity(scene, c, lampMats, lowSpec) {
   const h = heightAt(c.x, c.z);
   const g = new THREE.Group();
   g.position.set(c.x, h, c.z);
-  // plaza
   const plaza = new THREE.Mesh(new THREE.CircleGeometry(CITY_R, 28),
     new THREE.MeshLambertMaterial({ color: 0xb9b2a4 }));
   plaza.rotation.x = -Math.PI / 2; plaza.position.y = 0.15;
+  plaza.receiveShadow = !lowSpec;
   g.add(plaza);
-  // buildings ring
-  for (let i = 0; i < 9; i++) {
-    const a = (i / 9) * Math.PI * 2 + (c.x % 1);
-    const bw = 4 + hash(c.x * 10 + i, 3) * 3, bh = 6 + hash(i, c.z) * 14;
-    const b = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bw),
-      new THREE.MeshLambertMaterial({ color: new THREE.Color().setHSL(0.6, 0.08, 0.55 + hash(i, 9) * 0.25) }));
-    b.position.set(Math.cos(a) * (CITY_R - 7), bh / 2, Math.sin(a) * (CITY_R - 7));
-    g.add(b);
+  // ring of houses facing the plaza + a couple of taller blocks
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + hash(c.x, 1);
+    const px = Math.cos(a) * (CITY_R - 7), pz = Math.sin(a) * (CITY_R - 7);
+    buildHouse(g, px, 0, pz, -a + Math.PI / 2 + Math.PI, i + Math.floor(c.x), !lowSpec);
   }
-  // Pokécenter: white box, red roof — the heal/restock interaction point
+  for (let i = 0; i < 2; i++) {
+    const a = hash(c.z, i) * Math.PI * 2;
+    const bh = 9 + hash(i, c.x) * 9;
+    const block = new THREE.Mesh(new THREE.BoxGeometry(5.5, bh, 5.5),
+      new THREE.MeshLambertMaterial({ color: 0x9aa4b5 }));
+    block.position.set(Math.cos(a) * (CITY_R - 12), bh / 2, Math.sin(a) * (CITY_R - 12));
+    block.castShadow = !lowSpec;
+    g.add(block);
+  }
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + 0.4;
+    buildLamp(g, Math.cos(a) * 9, 0, Math.sin(a) * 9, lampMats, !lowSpec);
+  }
+  // Pokécenter
   const pc = new THREE.Group();
   const base = new THREE.Mesh(new THREE.BoxGeometry(8, 5, 8),
     new THREE.MeshLambertMaterial({ color: 0xf2f0ea }));
   base.position.y = 2.5;
+  base.castShadow = !lowSpec;
   const roof = new THREE.Mesh(new THREE.ConeGeometry(7, 3.6, 4),
     new THREE.MeshLambertMaterial({ color: 0xe84848 }));
   roof.position.y = 6.8; roof.rotation.y = Math.PI / 4;
+  roof.castShadow = !lowSpec;
   pc.add(base, roof);
-  pc.position.set(0, 0, 0);
   g.add(pc);
   const lbl = makeLabel(c.name, '#ffd34d');
-  lbl.position.y = 22;
+  lbl.position.y = 24;
   g.add(lbl);
   scene.add(g);
   c.worldY = h;
+}
+
+function buildVillages(scene, lowSpec) {
+  // hamlets at road midpoints
+  ROADS.forEach((road, ri) => {
+    if (road.points.length < 20) return;
+    const mid = road.points[Math.floor(road.points.length / 2)];
+    for (let i = 0; i < 3; i++) {
+      const a = hash(ri, i) * 6.28, d = 9 + hash(i, ri) * 8;
+      const x = mid[0] + Math.sin(a) * d, z = mid[1] + Math.cos(a) * d;
+      if (!isLand(x, z) || biomeAt(x, z) === 'himalaya') continue;
+      buildHouse(scene, x, heightAt(x, z), z, hash(i, 99) * 6.28, ri * 7 + i, !lowSpec);
+    }
+  });
 }
 
 function buildLandmark(scene, l) {
@@ -311,7 +729,7 @@ export function locationName(x, z) {
   return `${names[biome]}${near ? ' · NEAR ' + near.name : ''}`;
 }
 
-// ---------- maps (minimap + big map share a renderer) ----------
+// ---------- maps ----------
 export function drawMap(canvas, px, pz, heading, detailed) {
   const ctx = canvas.getContext('2d');
   const w = canvas.width, h = canvas.height;
@@ -329,6 +747,18 @@ export function drawMap(canvas, px, pz, heading, detailed) {
   ctx.closePath();
   ctx.fillStyle = '#3a6a3a'; ctx.fill();
   ctx.strokeStyle = '#9fd8ef'; ctx.lineWidth = 1.5; ctx.stroke();
+  if (detailed) {
+    ctx.strokeStyle = 'rgba(220,210,180,.5)'; ctx.lineWidth = 1;
+    for (const road of ROADS) {
+      ctx.beginPath();
+      road.points.forEach(([rx, rz], i) => {
+        const [lon, lat] = worldToLonLat(rx, rz);
+        const [X, Y] = toXY(lon, lat);
+        i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y);
+      });
+      ctx.stroke();
+    }
+  }
   for (const c of CITIES) {
     const [X, Y] = toXY(c.lon, c.lat);
     ctx.fillStyle = '#ffd34d';

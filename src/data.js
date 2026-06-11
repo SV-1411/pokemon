@@ -115,6 +115,7 @@ export function makeMon(speciesId, lvl, opts = {}) {
     moves: opts.moves ?? pickMoves(sp, lvl),
     pp: {},
     exp: expForLevel(lvl),
+    friend: opts.friend ?? 70,   // friendship 0-255, grows by battling/walking
     hp: 0, // set below
   };
   recalcStats(mon);
@@ -139,6 +140,13 @@ export function recalcStats(mon) {
 // Returns list of move names newly learnable at exactly this level.
 export function movesAtLevel(mon, lvl) {
   return DEX[mon.id - 1].lm.filter(([, l]) => l === lvl).map(([n]) => n);
+}
+
+// Encounter rarity tier (drives spawn weights; shown in the dex).
+export function rarityOf(sp) {
+  if (sp.leg || sp.myth) return 'Legendary';
+  const bst = sp.bs.hp + sp.bs.atk + sp.bs.def + sp.bs.spa + sp.bs.spd + sp.bs.spe;
+  return bst < 400 ? 'Common' : bst < 500 ? 'Uncommon' : bst < 570 ? 'Rare' : 'Very rare';
 }
 
 // ---------- catching (Gen 3/4 formula — rates match Bulbapedia) ----------
