@@ -86,6 +86,16 @@ detects there's no server and runs offline.
   level-based evolution, IVs (0–31), all 25 natures, genders, 1/512 shinies.
 - **Pokédex**: seen/caught counts and percentages over 898, silhouettes for
   unseen species, full data + flavor text once caught.
+- **Walkable interiors**: step inside the Pokécenter (Nurse Joyti heals your
+  party, the PC terminal opens your Box) and the Poké Mart, where you spend
+  **₹ rupees** on balls and potions. Potions are usable mid-battle.
+- **City NPCs**: pedestrians wander every plaza with local tips, and youth
+  trainers challenge you to battles for prize money.
+- **The India League — 8 gyms**: Electric (Bengaluru), Water (Mumbai), Rock
+  (Jaipur), Grass (Kochi), Ghost (Kolkata), Bug (Guwahati), Ice (Shimla) and
+  Dragon (Delhi). Each gym is a walkable arena with two trainees and a
+  leader whose themed team scales with your badge count. Win all 8 to become
+  **Champion of India**. Money comes from trainers, gyms and CLAUDE.
 - **Trainer CLAUDE** waits in Delhi with his classic six (Gengar, Dragonite,
   Blastoise, Arcanine, Alakazam, Snorlax) — he scales to your level and gets
   +3 levels every time you beat him.

@@ -62,6 +62,18 @@ for (const c of CITIES) {
   c.x = x; c.z = z;
 }
 
+// The 8 gyms of the India league, south to north.
+export const GYMS = [
+  { city: 'BENGALURU', type: 'electric', leader: 'TARA', color: 0xf8d030 },
+  { city: 'MUMBAI', type: 'water', leader: 'MARINA', color: 0x6890f0 },
+  { city: 'JAIPUR', type: 'rock', leader: 'RAJVEER', color: 0xb8a038 },
+  { city: 'KOCHI', type: 'grass', leader: 'MALLIKA', color: 0x78c850 },
+  { city: 'KOLKATA', type: 'ghost', leader: 'ESHANI', color: 0x705898 },
+  { city: 'GUWAHATI', type: 'bug', leader: 'MILIND', color: 0xa8b820 },
+  { city: 'SHIMLA', type: 'ice', leader: 'HIMANI', color: 0x98d8d8 },
+  { city: 'DELHI', type: 'dragon', leader: 'ARYAVEER', color: 0x7038f8 },
+];
+
 export const LANDMARKS = [
   { species: 'articuno', lvl: 70, lon: 77.9, lat: 34.6, label: 'FROZEN SHRINE' },
   { species: 'zapdos', lvl: 70, lon: 79.4, lat: 21.5, label: 'OLD POWER PLANT' },
@@ -934,6 +946,34 @@ function buildCity(scene, c, lampMats, windowMats, lowSpec) {
   mart.position.set(-13.5, 0, -13.5);
   mart.rotation.y = Math.PI / 4;
   g.add(mart);
+  // gym hall (league cities only): type-colored band + GYM sign
+  const gym = GYMS.find((gy) => gy.city === c.name);
+  if (gym) {
+    const hall = new THREE.Group();
+    const hallBase = new THREE.Mesh(new THREE.BoxGeometry(9, 5.5, 7.5),
+      new THREE.MeshLambertMaterial({ color: 0xe8e4da }));
+    hallBase.position.y = 2.75; hallBase.castShadow = sh;
+    const band = new THREE.Mesh(new THREE.BoxGeometry(9.2, 1.1, 7.7),
+      new THREE.MeshLambertMaterial({ color: gym.color }));
+    band.position.y = 4.6;
+    const hallRoof = new THREE.Mesh(new THREE.BoxGeometry(9.6, 0.6, 8.1),
+      new THREE.MeshLambertMaterial({ color: 0x55524c }));
+    hallRoof.position.y = 5.6;
+    const gymSign = new THREE.Mesh(new THREE.PlaneGeometry(5.4, 1.1),
+      new THREE.MeshLambertMaterial({ map: signTexture(`${gym.type.toUpperCase()} GYM`, '#444') }));
+    gymSign.position.set(0, 3.3, 3.82);
+    const doors = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.6, 0.14),
+      new THREE.MeshLambertMaterial({ color: 0x6a5a48 }));
+    doors.position.set(0, 1.3, 3.78);
+    hall.add(hallBase, band, hallRoof, gymSign, doors);
+    hall.position.set(15.5, 0, 15.5);
+    hall.rotation.y = Math.PI + Math.PI / 4; // doors face the plaza
+    g.add(hall);
+    c.gymDoor = [c.x + 13, c.z + 13];
+  }
+  // interaction anchors (world coords)
+  c.pcDoor = [c.x, c.z + 6.8];
+  c.martDoor = [c.x - 11.6, c.z - 11.6];
   const lbl = makeLabel(c.name, '#ffd34d');
   lbl.position.y = 26;
   g.add(lbl);

@@ -11,10 +11,23 @@ export function newSave(name) {
     seen: new Array(898).fill(0),
     caught: new Array(898).fill(0),
     balls: { poke: 15, great: 5, ultra: 2 },
+    items: { potion: 3, superpotion: 0, hyperpotion: 0 },
+    money: 3000,
+    badges: [],           // gym city names, in win order
+    beatenTrainers: [],   // one-time NPC trainer reward keys
     landmarksDone: [],    // legendary landmark species already caught/defeated
     claudeBeaten: 0,
     playSeconds: 0,
   };
+}
+
+// older saves predate the economy fields
+export function migrate(s) {
+  s.items ??= { potion: 3, superpotion: 0, hyperpotion: 0 };
+  s.money ??= 3000;
+  s.badges ??= [];
+  s.beatenTrainers ??= [];
+  return s;
 }
 
 export function loadSave() {

@@ -225,7 +225,7 @@ function mainMenu() {
   setMenu([
     { label: 'FIGHT', color: '#e84848', fn: fightMenu },
     { label: 'POKéMON', fn: () => switchMenu(false) },
-    { label: 'BAG', fn: bagMenu, disabled: !!B.trainer },
+    { label: 'BAG', fn: bagMenu },
     { label: 'RUN', fn: tryRun, disabled: !!B.trainer },
   ]);
 }
@@ -255,13 +255,31 @@ function switchMenu(forced) {
   if (!forced) items.push({ label: '← BACK', fn: mainMenu });
   setMenu(items);
 }
+const POTIONS = {
+  potion: { heal: 20, label: 'Potion' },
+  superpotion: { heal: 50, label: 'Super Potion' },
+  hyperpotion: { heal: 120, label: 'Hyper Potion' },
+};
 function bagMenu() {
-  const items = Object.entries(BALLS).map(([key, b]) => ({
-    label: `${b.label} ×${ctx.save.balls[key] ?? 0}`,
-    sub: `catch ×${b.mult}`,
-    disabled: (ctx.save.balls[key] ?? 0) <= 0,
-    fn: () => playerTurn({ ball: key }),
-  }));
+  const items = [];
+  if (!B.trainer) { // balls only work on wild Pokémon
+    for (const [key, b] of Object.entries(BALLS)) {
+      items.push({
+        label: `${b.label} ×${ctx.save.balls[key] ?? 0}`,
+        sub: `catch ×${b.mult}`,
+        disabled: (ctx.save.balls[key] ?? 0) <= 0,
+        fn: () => playerTurn({ ball: key }),
+      });
+    }
+  }
+  for (const [key, p] of Object.entries(POTIONS)) {
+    items.push({
+      label: `${p.label} ×${ctx.save.items?.[key] ?? 0}`,
+      sub: `restore ${p.heal} HP`,
+      disabled: (ctx.save.items?.[key] ?? 0) <= 0,
+      fn: () => playerTurn({ item: key }),
+    });
+  }
   items.push({ label: '← BACK', fn: mainMenu });
   setMenu(items);
 }
@@ -302,6 +320,16 @@ async function playerTurn(action) {
   clearMenu();
   const M = me();
   if (action.ball) return ballTurn(action.ball);
+  if (action.item) {
+    const p = POTIONS[action.item];
+    ctx.save.items[action.item]--;
+    M.hp = Math.min(M.maxHp, M.hp + p.heal);
+    SFX.heal();
+    syncBars(me(), en());
+    await say(`${M.name.toUpperCase()} was healed with the ${p.label.toUpperCase()}!`);
+    if (await enemyStrike()) return;
+    return endTurn();
+  }
   if (action.switch !== undefined) {
     await say(`${M.name.toUpperCase()}, come back!`);
     B.myIdx = action.switch;

@@ -180,9 +180,85 @@ function showSummary(p, i) {
   }
 }
 
+export function openBox() {
+  boxView = true;
+  renderPartyList();
+  $('partymodal').classList.remove('hidden');
+}
+
 export function anyModalOpen() {
-  return ['dexmodal', 'partymodal', 'mapmodal'].some((id) => !$(id).classList.contains('hidden'));
+  return ['dexmodal', 'partymodal', 'mapmodal', 'shopmodal'].some((id) => !$(id).classList.contains('hidden'));
 }
 export function closeModals() {
-  ['dexmodal', 'partymodal', 'mapmodal'].forEach((id) => $(id).classList.add('hidden'));
+  ['dexmodal', 'partymodal', 'mapmodal', 'shopmodal'].forEach((id) => $(id).classList.add('hidden'));
+}
+
+// ---------- HUD money/badges ----------
+export function refreshMoney() {
+  $('moneychip').textContent = `₹${S.money ?? 0} · ${S.badges?.length ?? 0}/8 badges`;
+}
+
+// ---------- dialogue box (advanced with E) ----------
+let dlg = null;
+export function dialog(name, lines) {
+  return new Promise((resolve) => {
+    dlg = { name, lines, i: 0, resolve };
+    $('dialogName').textContent = name;
+    $('dialogText').textContent = lines[0];
+    $('dialog').classList.remove('hidden');
+  });
+}
+export const dialogActive = () => !!dlg;
+export function dialogAdvance() {
+  if (!dlg) return;
+  SFX.menu();
+  if (++dlg.i >= dlg.lines.length) {
+    $('dialog').classList.add('hidden');
+    const r = dlg.resolve;
+    dlg = null;
+    r();
+  } else {
+    $('dialogText').textContent = dlg.lines[dlg.i];
+  }
+}
+
+// ---------- Poké Mart shop ----------
+const GOODS = [
+  { key: 'poke', kind: 'balls', label: 'Poké Ball', price: 200 },
+  { key: 'great', kind: 'balls', label: 'Great Ball', price: 600 },
+  { key: 'ultra', kind: 'balls', label: 'Ultra Ball', price: 1200 },
+  { key: 'potion', kind: 'items', label: 'Potion (+20 HP)', price: 300 },
+  { key: 'superpotion', kind: 'items', label: 'Super Potion (+50 HP)', price: 700 },
+  { key: 'hyperpotion', kind: 'items', label: 'Hyper Potion (+120 HP)', price: 1500 },
+];
+export function openShop() {
+  const list = $('shoplist');
+  const render = () => {
+    $('shopMoney').textContent = `₹${S.money}`;
+    list.innerHTML = '';
+    for (const g of GOODS) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;background:#fff;' +
+        'border:3px solid var(--ink);border-radius:8px;padding:6px 10px;font-size:13px;font-weight:bold';
+      row.innerHTML = `<span style="flex:1">${g.label}</span>
+        <span style="opacity:.6">own ${S[g.kind][g.key] ?? 0}</span><span>₹${g.price}</span>`;
+      const btn = document.createElement('button');
+      btn.className = 'btn';
+      btn.style.fontSize = '11px';
+      btn.textContent = 'BUY';
+      btn.disabled = S.money < g.price;
+      btn.onclick = () => {
+        if (S.money < g.price) return;
+        S.money -= g.price;
+        S[g.kind][g.key] = (S[g.kind][g.key] ?? 0) + 1;
+        SFX.catchClick();
+        refreshMoney();
+        render();
+      };
+      row.appendChild(btn);
+      list.appendChild(row);
+    }
+  };
+  render();
+  $('shopmodal').classList.remove('hidden');
 }

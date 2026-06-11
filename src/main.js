@@ -18,11 +18,14 @@ import { Follower } from './follower.js';
 import { initBattle, startBattle } from './battle.js';
 import {
   initUI, refreshPartyBar, setLocation, showPrompt, toast, openDex, openParty,
-  anyModalOpen, closeModals,
+  anyModalOpen, closeModals, refreshMoney, dialog, dialogActive, dialogAdvance,
+  openShop, openBox,
 } from './ui.js';
-import { newSave, loadSave, persist } from './save.js';
+import { newSave, loadSave, persist, migrate } from './save.js';
 import { Net } from './net.js';
 import { SFX } from './audio.js';
+import { Interiors } from './interiors.js';
+import { CityNPCs, npcTeam } from './npc.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -47,6 +50,7 @@ const STARTERS = [
 ];
 
 let save = null, scene, camera, renderer, player, spawns, net, world, atmosphere, follower;
+let interiors = null, cityNPCs = null;
 let startX = 0, startZ = 0;
 const lowSpec = location.search.includes('low');
 let claudeNPC = null;
@@ -78,7 +82,7 @@ let lastSave = 0, mapTick = 0;
   const existing = loadSave();
   if (existing) {
     $('btnContinue').classList.remove('hidden');
-    $('btnContinue').onclick = () => { save = existing; beginGame(); };
+    $('btnContinue').onclick = () => { save = migrate(existing); beginGame(); };
   }
   $('btnNew').onclick = () => {
     $('titleHome').classList.add('hidden');
@@ -164,6 +168,20 @@ function beginGame() {
   else player.setPosition(blr.x + 34, blr.z + 18); // just outside the plaza
 
   spawns = new Spawns(scene, save);
+  cityNPCs = new CityNPCs(scene, save);
+  interiors = new Interiors({
+    save,
+    camera,
+    playerMesh: player.mesh,
+    worldScene: scene,
+    showPrompt,
+    toast,
+    dialog,
+    healParty,
+    openBox,
+    openShop,
+    startTrainerBattle: interiorTrainerBattle,
+  });
   net = new Net();
   net.onToast = toast;
   net.onChallenged = (from, name) => {
@@ -193,10 +211,11 @@ function beginGame() {
     toast,
   });
   refreshPartyBar();
+  refreshMoney();
   bindKeys();
   mode = 'world';
   console.log('[boot] game running');
-  window.__game = { atmosphere, player, save, world, net }; // debug/e2e handle
+  window.__game = { atmosphere, player, save, world, net, interiors }; // debug/e2e handle
   SFX.bgm('world');
   toast(`Welcome to INDIA, ${save.name}! Wild Pokémon await.`);
   window.__test_battle = async () => {
@@ -215,7 +234,8 @@ function beginGame() {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     tick(dt, now);
-    if (composer) composer.render();
+    if (interiors?.active) interiors.render(renderer);
+    else if (composer) composer.render();
     else renderer.render(scene, camera);
     if (logFps && ++frames && now - fpsT > 5000) {
       console.log(`[fps] ${(frames / ((now - fpsT) / 1000)).toFixed(1)}`);
@@ -251,6 +271,18 @@ function claudeTeam() {
 function bindKeys() {
   addEventListener('keydown', (e) => {
     if (mode !== 'world') return;
+    if (dialogActive()) {
+      if (e.code === 'KeyE') dialogAdvance();
+      return;
+    }
+    if (interiors.active) {
+      if (e.code === 'KeyE') interiors.interact();
+      if (e.code === 'KeyN') toast(SFX.toggle() ? '🔊 Sound on' : '🔇 Sound off');
+      if (e.code === 'KeyP') { anyModalOpen() ? closeModals() : openParty(); }
+      if (e.code === 'KeyX') { anyModalOpen() ? closeModals() : openDex(); }
+      if (e.code === 'Escape') closeModals();
+      return;
+    }
     if (e.code === 'KeyX') { anyModalOpen() ? closeModals() : openDex(); }
     if (e.code === 'KeyP') { anyModalOpen() ? closeModals() : openParty(); }
     if (e.code === 'KeyM') {
@@ -272,9 +304,37 @@ function bindKeys() {
   });
 }
 
-let nearSpawn = null, nearPokecenter = null, nearClaude = false, nearRemote = null;
+let nearSpawn = null, nearClaude = false, nearRemote = null, nearNPC = null, nearDoor = null;
 let pendingChallenge = null;
 let grassCooldown = 0;
+
+function healParty() {
+  for (const p of save.party) {
+    p.hp = p.maxHp;
+    for (const mv of p.moves) p.pp[mv] = MOVES[mv].pp;
+  }
+  save.balls.poke = Math.max(save.balls.poke, 15);
+  refreshPartyBar();
+  persist(save);
+}
+
+// trainer battles launched from inside a gym (loss = blackout + exit)
+async function interiorTrainerBattle(name, team) {
+  mode = 'battle';
+  player.frozen = true;
+  const result = await startBattle({ trainer: { name, team }, biome: 'city' });
+  if (result.outcome === 'lose') {
+    interiors.exit();
+    afterBattle(result);
+  } else {
+    refreshPartyBar();
+    refreshMoney();
+    persist(save);
+    mode = 'world';
+    player.frozen = false;
+  }
+  return result;
+}
 const remoteMeshes = new Map(); // id -> {group, label}
 
 function reconcileRemotePlayers(dt) {
@@ -318,7 +378,12 @@ function reconcileRemotePlayers(dt) {
 }
 function tick(dt, now) {
   if (mode !== 'world') return;
-  player.frozen = anyModalOpen();
+  if (interiors.active) {
+    if (!anyModalOpen() && !dialogActive()) interiors.update(dt, player.keys);
+    save.playSeconds += dt;
+    return;
+  }
+  player.frozen = anyModalOpen() || dialogActive();
   const px0 = player.pos.x, pz0 = player.pos.z;
   player.update(dt);
   const moved = Math.hypot(player.pos.x - px0, player.pos.z - pz0) > 0.01;
@@ -348,9 +413,24 @@ function tick(dt, now) {
   }
 
   // proximity prompts
+  cityNPCs.update(dt, player.pos.x, player.pos.z);
   nearSpawn = spawns.nearest(player.pos.x, player.pos.z);
-  const city = nearCity(player.pos.x, player.pos.z, 13);
-  nearPokecenter = city ?? null;
+  nearNPC = cityNPCs.nearest(player.pos.x, player.pos.z);
+  nearDoor = null;
+  const city = nearCity(player.pos.x, player.pos.z, CITY_R + 16);
+  if (city) {
+    const doors = [
+      ['center', city.pcDoor, `E — Enter the ${city.name} Pokécenter`],
+      ['mart', city.martDoor, 'E — Enter the Poké Mart'],
+    ];
+    if (city.gymDoor) doors.push(['gym', city.gymDoor, `E — Enter the ${city.name} GYM`]);
+    for (const [kind, pos, label] of doors) {
+      if (pos && Math.hypot(player.pos.x - pos[0], player.pos.z - pos[1]) < 6) {
+        nearDoor = { kind, city, label };
+        break;
+      }
+    }
+  }
   nearClaude = claudeNPC && Math.hypot(player.pos.x - claudeNPC.x, player.pos.z - claudeNPC.z) < 10;
   nearRemote = null;
   let nrd = 10;
@@ -360,8 +440,9 @@ function tick(dt, now) {
   }
   if (nearClaude) showPrompt(`E — Battle TRAINER CLAUDE ${save.claudeBeaten ? `(rematches won: ${save.claudeBeaten})` : '(he remembers losing to you)'}`);
   else if (nearRemote) showPrompt(`E — Challenge TRAINER ${nearRemote.name} to a PvP battle!`);
+  else if (nearDoor) showPrompt(nearDoor.label);
+  else if (nearNPC) showPrompt(cityNPCs.promptFor(nearNPC));
   else if (nearSpawn) showPrompt(spawns.promptFor(nearSpawn));
-  else if (nearPokecenter) showPrompt(`E — Pokécenter ${nearPokecenter.name}: heal party & restock balls`);
   else showPrompt(null);
 
   // HUD
@@ -379,25 +460,38 @@ function tick(dt, now) {
 }
 
 async function interact() {
-  if (mode !== 'world' || anyModalOpen()) return;
+  if (mode !== 'world' || anyModalOpen() || dialogActive()) return;
   if (nearClaude) return battleClaude();
   if (nearRemote) {
     net.challenge(nearRemote.id, serializeTeam(save.party));
     return;
   }
+  if (nearDoor) return interiors.enter(nearDoor.kind, nearDoor.city);
+  if (nearNPC) return talkToNPC(nearNPC);
   if (nearSpawn) return battleWild(nearSpawn);
-  if (nearPokecenter) {
-    for (const p of save.party) {
-      p.hp = p.maxHp;
-      for (const mv of p.moves) p.pp[mv] = MOVES[mv].pp;
+}
+
+async function talkToNPC(n) {
+  if (n.battler && !save.beatenTrainers.includes(n.beatKey)) {
+    await dialog(n.name, ['Hey! Your Pokémon look strong… battle me!']);
+    const avg = Math.round(save.party.reduce((a, p) => a + p.lvl, 0) / save.party.length);
+    const team = npcTeam(spawns, n.mesh.position.x, n.mesh.position.z, atmosphere, 2, avg);
+    mode = 'battle';
+    player.frozen = true;
+    const result = await startBattle({
+      trainer: { name: n.name, team },
+      weather: atmosphere.battleWeather(),
+      biome: 'city',
+    });
+    if (result.outcome === 'win') {
+      save.beatenTrainers.push(n.beatKey);
+      const prize = 80 * avg;
+      save.money += prize;
+      toast(`Won ₹${prize} from ${n.name}!`);
     }
-    save.balls.poke = Math.max(save.balls.poke, 15);
-    save.balls.great = Math.max(save.balls.great, 5);
-    save.balls.ultra = Math.max(save.balls.ultra, 2);
-    refreshPartyBar();
-    persist(save);
-    SFX.heal();
-    toast(`Party healed at ${nearPokecenter.name} Pokécenter! Balls restocked.`);
+    afterBattle(result);
+  } else {
+    await dialog(n.name, [n.line]);
   }
 }
 
@@ -424,7 +518,8 @@ async function battleClaude() {
   if (result.outcome === 'win') {
     save.claudeBeaten++;
     save.balls.ultra += 5;
-    toast('CLAUDE: "GG again. Take 5 Ultra Balls — and next time I level up." (+5 Ultra Balls)');
+    save.money += 1500;
+    toast('CLAUDE: "GG again. Take ₹1500 and 5 Ultra Balls — next time I level up."');
   }
   afterBattle(result);
 }
@@ -454,6 +549,7 @@ function afterBattle(result) {
     toast(`You blacked out and woke up in ${best.name}…`);
   }
   refreshPartyBar();
+  refreshMoney();
   save.x = player.pos.x; save.z = player.pos.z;
   persist(save);
   mode = 'world';
