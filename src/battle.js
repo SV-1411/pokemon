@@ -75,6 +75,27 @@ export function animate(el, cls, ms = 500) {
   el.classList.add(cls);
   setTimeout(() => el.classList.remove(cls), ms);
 }
+// impact burst + floating damage number over the defender
+export function hitFX(targetId, color, dmg) {
+  const scene = $('bscene');
+  const t = $(targetId).getBoundingClientRect();
+  const s = scene.getBoundingClientRect();
+  const x = t.left - s.left + t.width / 2, y = t.top - s.top + t.height / 2;
+  const burst = document.createElement('div');
+  burst.className = 'fxburst';
+  burst.style.left = `${x}px`; burst.style.top = `${y}px`;
+  burst.style.background = `radial-gradient(circle, #fff 0%, ${color} 35%, transparent 70%)`;
+  scene.appendChild(burst);
+  setTimeout(() => burst.remove(), 500);
+  if (dmg) {
+    const num = document.createElement('div');
+    num.className = 'dmgnum';
+    num.style.left = `${x + 18}px`; num.style.top = `${y - 18}px`;
+    num.textContent = `-${dmg}`;
+    scene.appendChild(num);
+    setTimeout(() => num.remove(), 900);
+  }
+}
 // Animated Showdown GIF first; fall back through the static sprites.
 export function setSpriteImg(img, candidates) {
   let i = 0;
@@ -395,6 +416,7 @@ async function doMove(att, def, mv, isMe) {
   def.hp = Math.max(0, def.hp - dmg);
   flashSprite(isMe ? 'sprEnemy' : 'sprMe');
   animate($('bframe'), 'hit-shake', 420);
+  hitFX(isMe ? 'sprEnemy' : 'sprMe', TYPE_COLORS[d.t] ?? '#fff', dmg);
   SFX.hit(eff);
   syncBars(me(), en());
   if (crit) await say('A critical hit!');

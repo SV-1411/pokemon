@@ -630,29 +630,75 @@ function plantTallGrass(scene) {
 }
 
 // ---------- buildings ----------
-const PLASTER = [0xf2e8d8, 0xf8d8b8, 0xd8e8f0, 0xe8e0c8, 0xf0d8d0];
+const PLASTER = [0xf6ead2, 0xf8d8b8, 0xd8ecf2, 0xe8efd2, 0xf4dcd8, 0xefe2c4];
+const ROOF_COLORS = [0xc4503a, 0xd8703a, 0x3a8a8a, 0xb5532f, 0x8a4a8a];
+
+// triangular roof prism, ridge along z, base centered at origin
+function prismGeometry(w, h, d) {
+  const hw = w / 2, hd = d / 2;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute([
+    -hw, 0, -hd, hw, 0, -hd, 0, h, -hd,
+    -hw, 0, hd, hw, 0, hd, 0, h, hd,
+  ], 3));
+  geo.setIndex([0, 2, 1, 3, 4, 5, 0, 5, 2, 0, 3, 5, 1, 2, 5, 1, 5, 4, 0, 4, 3, 0, 1, 4]);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// Anime-style cottage: pastel walls, overhanging gabled roof, chimney, framed
+// windows with flower boxes, a door with a step — the houses from the show.
 function buildHouse(parent, x, y, z, ry, seed, shadows) {
   const g = new THREE.Group();
-  const w = 4 + hash(seed, 2) * 2.2, d = 3.4 + hash(seed, 3) * 1.6, hh = 2.8 + hash(seed, 4);
+  const w = 4.6 + hash(seed, 2) * 2, d = 3.8 + hash(seed, 3) * 1.6, hh = 2.9 + hash(seed, 4) * 0.8;
   const wall = new THREE.MeshLambertMaterial({ color: PLASTER[seed % PLASTER.length] });
+  const roofM = new THREE.MeshLambertMaterial({ color: ROOF_COLORS[seed % ROOF_COLORS.length] });
+  const frame = new THREE.MeshLambertMaterial({ color: 0xfaf6ee });
   const base = new THREE.Mesh(new THREE.BoxGeometry(w, hh, d), wall);
   base.position.y = hh / 2;
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.hypot(w, d) * 0.62, 1.8, 4),
-    new THREE.MeshLambertMaterial({ color: 0xb5532f }));
-  roof.position.y = hh + 0.9;
-  roof.rotation.y = Math.PI / 4;
-  roof.scale.set(w / Math.hypot(w, d) * 1.42, 1, d / Math.hypot(w, d) * 1.42);
-  const door = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.7, 0.12),
-    new THREE.MeshLambertMaterial({ color: 0x5a3a22 }));
-  door.position.set(0, 0.85, d / 2 + 0.06);
-  const winMat = new THREE.MeshLambertMaterial({ color: 0x2a3a55 });
-  for (const wx of [-w / 4 - 0.3, w / 4 + 0.3]) {
-    const win = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.8, 0.1), winMat);
-    win.position.set(wx, hh * 0.6, d / 2 + 0.05);
-    g.add(win);
+  base.castShadow = shadows;
+  // gabled roof with eave overhang + gable infill + chimney
+  const roof = new THREE.Mesh(prismGeometry(w + 1.5, 1.7 + hash(seed, 8) * 0.6, d + 1.3), roofM);
+  roof.position.y = hh;
+  roof.castShadow = shadows;
+  const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.55, 1.4, 0.55),
+    new THREE.MeshLambertMaterial({ color: 0x9a8a7a }));
+  chimney.position.set(w / 4, hh + 1.2, -d / 4);
+  // door with frame + step
+  const doorFrame = new THREE.Mesh(new THREE.BoxGeometry(1.25, 2.05, 0.1), frame);
+  doorFrame.position.set(-w / 5, 1, d / 2 + 0.04);
+  const door = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.8, 0.12),
+    new THREE.MeshLambertMaterial({ color: 0x7a4a28 }));
+  door.position.set(-w / 5, 0.9, d / 2 + 0.1);
+  const knob = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 6),
+    new THREE.MeshLambertMaterial({ color: 0xd8c050 }));
+  knob.position.set(-w / 5 + 0.32, 0.9, d / 2 + 0.18);
+  const step = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.22, 0.8),
+    new THREE.MeshLambertMaterial({ color: 0xb8b0a0 }));
+  step.position.set(-w / 5, 0.11, d / 2 + 0.5);
+  g.add(base, roof, chimney, doorFrame, door, knob, step);
+  // framed windows with flower boxes
+  const glassM = new THREE.MeshLambertMaterial({ color: 0x9fd0e8 });
+  const flowerBox = new THREE.MeshLambertMaterial({ color: 0x5a8a3a });
+  const petals = [0xe85a8a, 0xe8d04a, 0xe87a4a];
+  let wi = 0;
+  for (const [wx, wz, wry] of [[w / 4.5, d / 2 + 0.05, 0], [-w / 2 - 0.05, 0, Math.PI / 2], [w / 2 + 0.05, 0, -Math.PI / 2]]) {
+    const winG = new THREE.Group();
+    const fr = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.1, 0.1), frame);
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.85, 0.12), glassM);
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.85, 0.13), frame);
+    const fb = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.25, 0.3), flowerBox);
+    fb.position.set(0, -0.68, 0.12);
+    const fl = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.16, 0.2),
+      new THREE.MeshLambertMaterial({ color: petals[(seed + wi) % petals.length] }));
+    fl.position.set(0, -0.52, 0.12);
+    winG.add(fr, glass, bar, fb, fl);
+    winG.position.set(wx, hh * 0.62, wz);
+    winG.rotation.y = wry;
+    if (wry !== 0) { winG.position.x = wx; winG.position.z = (wi - 1.5) * 0.8; }
+    g.add(winG);
+    wi++;
   }
-  base.castShadow = shadows; roof.castShadow = shadows;
-  g.add(base, roof, door);
   g.position.set(x, y, z);
   g.rotation.y = ry;
   parent.add(g);
@@ -879,6 +925,9 @@ function buildCity(scene, c, lampMats, windowMats, lowSpec) {
     const a = Math.PI / 4 + (i * Math.PI) / 2;
     buildShop(g, Math.cos(a) * 13.5, Math.sin(a) * 13.5, -a - Math.PI / 2, seed0 + i, sh);
   }
+  // anime cottages in the quiet quadrants
+  buildHouse(g, -16.5, 0, 15.5, Math.atan2(16.5, -15.5), seed0 + 71, sh);
+  buildHouse(g, 16.5, 0, -15.5, Math.atan2(-16.5, 15.5), seed0 + 72, sh);
   // parked autorickshaws + plaza lamps + hedges
   for (let i = 0; i < 3; i++) {
     const a = hash(seed0, 60 + i) * 6.28;
@@ -990,7 +1039,18 @@ function buildVillages(scene, lowSpec) {
       const a = hash(ri, i) * 6.28, d = 9 + hash(i, ri) * 8;
       const x = mid[0] + Math.sin(a) * d, z = mid[1] + Math.cos(a) * d;
       if (!isLand(x, z) || biomeAt(x, z) === 'himalaya') continue;
-      buildHouse(scene, x, heightAt(x, z), z, hash(i, 99) * 6.28, ri * 7 + i, !lowSpec);
+      const ry = hash(i, 99) * 6.28;
+      buildHouse(scene, x, heightAt(x, z), z, ry, ri * 7 + i, !lowSpec);
+      // white picket fence out front
+      const fenceM = new THREE.MeshLambertMaterial({ color: 0xf2efe8 });
+      for (const off of [-2.2, 0, 2.2]) {
+        const seg = new THREE.Mesh(new THREE.BoxGeometry(2, 0.7, 0.12), fenceM);
+        const fx = x + Math.sin(ry) * 4.4 + Math.cos(ry) * off;
+        const fz = z + Math.cos(ry) * 4.4 - Math.sin(ry) * off;
+        seg.position.set(fx, heightAt(fx, fz) + 0.35, fz);
+        seg.rotation.y = ry;
+        scene.add(seg);
+      }
     }
   });
 }

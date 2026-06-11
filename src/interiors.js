@@ -99,9 +99,10 @@ export class Interiors {
   npcAt(scene, seed, x, z, tint) {
     const v = buildVillager(seed);
     if (tint) {
-      const m = v.children[2].material.clone();
+      const chest = v.userData.torso.children[0];
+      const m = chest.material.clone();
       m.color.set(tint);
-      v.children[2].material = m;
+      chest.material = m;
     }
     v.position.set(x, 0, z);
     v.rotation.y = Math.atan2(0 - x, 6 - z); // face roughly toward the door
@@ -117,9 +118,9 @@ export class Interiors {
     const top = new THREE.Mesh(new THREE.BoxGeometry(9.4, 0.3, 2), mat(0xf5f0e5));
     top.position.set(0, 2.3, -D / 2 + 4);
     scene.add(counter, top);
-    // nurse: white kurta + pink hair
-    const nurse = this.npcAt(scene, 4, 0, -D / 2 + 2.2, 0xf5f0ea);
-    nurse.children[6].material = mat(0xe87aa8); // hair
+    // nurse: white uniform + pink hair
+    const nurse = this.npcAt(scene, 5, 0, -D / 2 + 2.2, 0xf5f0ea);
+    nurse.userData.hair.material = mat(0xe87aa8);
     nurse.rotation.y = 0;
     // healing machine
     const machine = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.4, 1.6), mat(0x4a4a58));

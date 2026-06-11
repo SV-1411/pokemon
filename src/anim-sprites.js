@@ -35,7 +35,8 @@ async function decodeEntry(id, shiny) {
     let aspect = 1;
     for (let i = 0; i < count; i++) {
       const { image } = await dec.decode({ frameIndex: i });
-      const bmp = await createImageBitmap(image);
+      // ImageBitmap uploads bypass UNPACK_FLIP_Y, so bake the flip in here
+      const bmp = await createImageBitmap(image, { imageOrientation: 'flipY' });
       aspect = bmp.width / bmp.height;
       image.close();
       const tex = new THREE.Texture(bmp);

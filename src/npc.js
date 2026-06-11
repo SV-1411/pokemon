@@ -1,11 +1,12 @@
 // City life: pedestrian NPCs that wander the plaza, chat with flavor lines,
 // and youth trainers who battle you for prize money. NPCs spawn around
 // whichever city you're near and despawn when you leave.
-import * as THREE from 'three';
 import { heightAt, nearCity, CITY_R, biomeAt } from './world.js';
 import { makeMon } from './data.js';
+import { buildVillagerV2 } from './chars.js';
 
-const KURTA = [0xd88a3a, 0x4a8ad8, 0x9a4ad8, 0x3aa86a, 0xd84a6a, 0xe8d84a];
+// anime-proportioned villagers (man/woman/kid/elder) from chars.js
+export const buildVillager = buildVillagerV2;
 const NAMES = ['RAVI', 'PRIYA', 'ARJUN', 'MEERA', 'KIRAN', 'ANIKA', 'DEV', 'ISHA',
   'ROHAN', 'TANVI', 'VIKRAM', 'POOJA', 'AMIT', 'SNEHA', 'KABIR', 'DIYA'];
 const LINES = [
@@ -22,38 +23,6 @@ const LINES = [
   'The chai here is the best in the region. The Dosa Corner? Also the best.',
   'I once saw a SHINY one sparkle in the grass. Couldn\'t catch it…',
 ];
-
-export function buildVillager(seed) {
-  const g = new THREE.Group();
-  const skin = new THREE.MeshLambertMaterial({ color: 0xd8a878 });
-  const kurta = new THREE.MeshLambertMaterial({ color: KURTA[seed % KURTA.length] });
-  const pant = new THREE.MeshLambertMaterial({ color: 0xe8e0d0 });
-  const hair = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
-  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.8, 2.2, 0.8), pant);
-  legL.geometry.translate(0, -1.1, 0);
-  legL.position.set(-0.5, 2.3, 0);
-  const legR = legL.clone(); legR.position.x = 0.5;
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(2, 2.6, 1.1), kurta);
-  torso.position.y = 3.6;
-  const armL = new THREE.Mesh(new THREE.BoxGeometry(0.55, 2, 0.55), kurta);
-  armL.geometry.translate(0, -0.9, 0);
-  armL.position.set(-1.3, 4.6, 0);
-  const armR = armL.clone(); armR.position.x = 1.3;
-  const head = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.4, 1.4), skin);
-  head.position.y = 5.6;
-  const hairTop = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.5, 1.5), hair);
-  hairTop.position.y = 6.35;
-  g.add(legL, legR, torso, armL, armR, head, hairTop);
-  // some wear a dupatta/scarf
-  if (seed % 3 === 0) {
-    const scarf = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.4, 1.2),
-      new THREE.MeshLambertMaterial({ color: KURTA[(seed + 2) % KURTA.length] }));
-    scarf.position.y = 4.7;
-    g.add(scarf);
-  }
-  g.userData = { legL, legR };
-  return g;
-}
 
 // themed team for an NPC trainer near (x,z): species drawn from local biome
 export function npcTeam(spawns, x, z, atmosphere, count, lvl) {

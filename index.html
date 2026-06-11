@@ -81,6 +81,14 @@
   @keyframes lungeEn { 30% { transform: translate(-36px,14px); } 60% { transform: none; } }
   @keyframes hitShake { 20% { transform: translateX(7px); } 40% { transform: translateX(-7px); }
     60% { transform: translateX(4px); } 80% { transform: translateX(-4px); } }
+  .fxburst { position: absolute; width: 95px; height: 95px; border-radius: 50%;
+    pointer-events: none; transform: translate(-50%,-50%) scale(.2); opacity: .95;
+    animation: burst .45s ease-out forwards; }
+  @keyframes burst { to { transform: translate(-50%,-50%) scale(1.7); opacity: 0; } }
+  .dmgnum { position: absolute; font: bold 28px 'Courier New', monospace; color: #fff;
+    text-shadow: 2px 2px 0 #303048, -1px -1px 0 #303048; pointer-events: none;
+    transform: translate(-50%,-50%); animation: dmgfloat .85s ease-out forwards; }
+  @keyframes dmgfloat { to { transform: translate(-50%,-190%); opacity: 0; } }
   .enter-me { animation: enterMe .55s ease-out; }
   .enter-en { animation: enterEn .55s ease-out; }
   .lunge-me { animation: lungeMe .45s ease-in-out; }

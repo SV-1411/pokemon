@@ -1,7 +1,7 @@
 // PvP battle screen: same GBA overlay as battle.js, but every outcome comes
 // from the server's event stream — this module only sends actions and renders.
 import { MOVES, sprFront, sprBack, moveName, TYPE_COLORS } from './data.js';
-import { paintBattleBg, animate, setSpriteImg } from './battle.js';
+import { paintBattleBg, animate, setSpriteImg, hitFX } from './battle.js';
 import { showdownUrl } from './anim-sprites.js';
 import { SFX } from './audio.js';
 
@@ -146,6 +146,7 @@ async function processEvents(events) {
         if (mineHit) S.team[S.myIdx].hp = ev.hp; else S.opp.hp = ev.hp;
         flash(mineHit ? 'sprMe' : 'sprEnemy');
         animate($('bframe'), 'hit-shake', 420);
+        hitFX(mineHit ? 'sprMe' : 'sprEnemy', '#ffffff', ev.dmg);
         SFX.hit(ev.eff);
         syncBars();
         if (ev.crit) await say('A critical hit!');

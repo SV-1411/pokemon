@@ -66,10 +66,16 @@ detects there's no server and runs offline.
   (hits, super-effective slams, faints, ball throws/shakes/catch clicks,
   level-up and heal jingles) and generated chiptune background music with
   separate overworld and battle themes. Toggle with **N**.
-- **Anime-style world**: the trainer is a cap-and-jacket protagonist with
-  black hair, cheek marks, gloves and a backpack, arms swinging as he
-  runs; cities have the dome-roofed red **Pokécenter** from the show and a
-  blue-roofed **Poké Mart**.
+- **Anime-style world**: the trainer is a proportioned anime protagonist —
+  round head with real eyes and cheek marks, spiky black hair under the
+  red/white cap, jacket, gloves, backpack — who breathes when idle, swings
+  his arms as he walks and leans into a sprint. Villagers come in four
+  archetypes (men in kurtas, women in kurtis with dupattas, kids, elders
+  with walking sticks). Houses are anime cottages: pastel walls, overhanging
+  gabled roofs, chimneys, framed windows with flower boxes, door steps and
+  picket fences. Cities have the dome-roofed red **Pokécenter** from the
+  show and a blue-roofed **Poké Mart**. Battles pop with type-colored
+  impact bursts and floating damage numbers.
 - **Biome spawning**: water types on the coasts, ice/dragon/rock in the
   Himalaya, ground/fire in the Thar, bug/poison/grass in the forests,
   ghost/dark in the eastern jungle, electric/psychic/steel in cities. Rarity
