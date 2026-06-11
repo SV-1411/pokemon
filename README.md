@@ -8,15 +8,22 @@ Pokémon of Generations 1–8** living in biome-appropriate regions.
 ![World](docs/screenshot-world.png)
 ![Night](docs/screenshot-night.png)
 ![Battle](docs/screenshot-battle.png)
+![Multiplayer](docs/screenshot-multiplayer.png)
+![PvP](docs/screenshot-pvp.png)
 
 ## Play
 
+**Multiplayer (recommended):**
 ```
-python -m http.server 8000        # any static server works
-# then open http://localhost:8000
+cd server && npm install && node index.mjs
+# → open http://localhost:8128  (share http://<your-ip>:8128 on your LAN)
 ```
+Everyone who opens that URL walks the same India. You'll see other trainers
+in-world with name tags — walk up to one and press **E** to challenge them to
+a PvP battle with your real caught teams (they press **Y** to accept).
 
-(It must be served over HTTP — ES modules don't run from `file://`.)
+**Solo:** any static server works (`python -m http.server 8000`) — the game
+detects there's no server and runs offline.
 
 ## What's in the game
 
@@ -91,19 +98,34 @@ tools/            PokéAPI baker + puppeteer e2e smoke tests
 pokemon.html      the original 2D 6v6 battle game (classic mode)
 ```
 
-## Multiplayer roadmap
+## Multiplayer — how it works
 
-The code is structured so going online is additive, not a rewrite:
+`server/index.mjs` is an authoritative Node.js + WebSocket server that also
+serves the game itself:
 
-1. **Server**: Node.js + WebSocket, authoritative. Rooms sharded by map
-   region. Clients stream position/heading at ~10 Hz; the server broadcasts
-   nearby players, rendered as other trainers in-world.
-2. **PvP battles**: walk up to another player, challenge them (the
-   `net.js` hook already exists). Both clients submit actions; the server
-   runs the same pure battle math exported by `src/data.js`, so results are
-   authoritative and cheat-proof — you fight their *actual* caught team.
-3. **Accounts**: the save JSON (`src/save.js`) moves server-side as-is.
-4. **Trading** and co-op legendary raids after that.
+- **Presence**: clients stream position/heading at 10 Hz; everyone nearby is
+  rendered in-world as a blue-shirted trainer with a name tag.
+- **PvP battles are server-resolved and cheat-proof**: when a challenge is
+  accepted, both sides submit only `(species, level, IVs, nature, moves)` —
+  the server *recomputes all stats* from the dex data (`server/battlecore.mjs`,
+  same formulas as the client), rejects illegal moves the species can't learn
+  at that level, resolves every turn (priority, speed, full type chart, STAB,
+  crits, PP), and streams an event list that both clients merely render
+  (`src/pvp.js`). A client that lies about its Attack stat simply gets
+  corrected; one that disconnects forfeits.
+- PvP is an exhibition format: teams enter at full HP and your real party is
+  untouched afterwards.
+
+Verified by `node tools/e2e_mp_test.mjs`: boots two headless browsers against
+one server, asserts they see each other, runs the challenge/accept flow, plays
+a full battle to the end on both screens, and kills one mid-battle to check
+the disconnect-forfeit path.
+
+### Still on the roadmap
+1. **Accounts**: move the save JSON (`src/save.js`) server-side, login by name+key.
+2. **Region rooms**: shard presence by map region once player counts grow.
+3. **Trading** and co-op legendary raids.
+4. Public hosting (any Node host works — Railway/Fly/a VPS; it's one process).
 
 ## Dev verification
 

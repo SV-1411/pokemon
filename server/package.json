@@ -1,0 +1,9 @@
+{
+  "name": "pokemon-india-server",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Authoritative multiplayer server for POKeMON INDIA",
+  "main": "index.mjs",
+  "scripts": { "start": "node index.mjs" },
+  "dependencies": { "ws": "^8.18.0" }
+}

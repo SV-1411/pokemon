@@ -622,7 +622,7 @@ function buildLamp(parent, x, y, z, lampMats, shadows) {
   parent.add(pole, bulb);
 }
 
-function makeLabel(text, color = '#ffffff', size = 26) {
+export function makeLabel(text, color = '#ffffff', size = 26) {
   const cv = document.createElement('canvas');
   const ctx = cv.getContext('2d');
   ctx.font = `bold ${size * 2}px Courier New`;

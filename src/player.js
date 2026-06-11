@@ -75,7 +75,7 @@ export class Player {
   }
 }
 
-function buildTrainer() {
+export function buildTrainer() {
   const g = new THREE.Group();
   const skin = new THREE.MeshLambertMaterial({ color: 0xc89878 });
   const shirt = new THREE.MeshLambertMaterial({ color: 0xe84848 });

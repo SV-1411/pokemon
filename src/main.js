@@ -3,9 +3,11 @@ import * as THREE from 'three';
 import { loadData, DEX, byName, makeMon, sprFront, displayName, MOVES } from './data.js';
 import {
   buildWorld, lonLatToWorld, heightAt, biomeAt, nearCity, locationName,
-  drawMap, CITIES, CITY_R, inTallGrass,
+  drawMap, CITIES, CITY_R, inTallGrass, makeLabel,
 } from './world.js';
-import { Player } from './player.js';
+import { Player, buildTrainer } from './player.js';
+import { startPvpBattle } from './pvp.js';
+import { serializeTeam } from './net.js';
 import { Spawns } from './spawns.js';
 import { Atmosphere } from './weather.js';
 import { Follower } from './follower.js';
@@ -143,6 +145,19 @@ function beginGame() {
 
   spawns = new Spawns(scene, save);
   net = new Net();
+  net.onToast = toast;
+  net.onChallenged = (from, name) => {
+    pendingChallenge = { from, name };
+    toast(`⚔ ${name} challenges you to a battle! Press Y to accept`);
+  };
+  net.onBattleStart = (msg) => {
+    if (mode !== 'world') { net.forfeit(); return; }
+    battlePvp(msg);
+  };
+  net.connect(save.name, save.party[0]?.id ?? 25, player.pos.x, player.pos.z)
+    .then((ok) => toast(ok
+      ? '🌐 Online — other trainers will appear in your world!'
+      : 'Offline mode (start server/index.mjs for multiplayer)'));
   buildClaudeNPC();
 
   initUI(save);
@@ -160,7 +175,7 @@ function beginGame() {
   refreshPartyBar();
   bindKeys();
   mode = 'world';
-  window.__game = { atmosphere, player, save, world }; // debug/e2e handle
+  window.__game = { atmosphere, player, save, world, net }; // debug/e2e handle
   toast(`Welcome to INDIA, ${save.name}! Wild Pokémon await.`);
   if (location.search.includes('battletest')) {
     setTimeout(async () => {
@@ -218,12 +233,56 @@ function bindKeys() {
     }
     if (e.code === 'Escape') closeModals();
     if (e.code === 'KeyE') interact();
+    if (e.code === 'KeyY' && pendingChallenge) {
+      net.accept(pendingChallenge.from, serializeTeam(save.party));
+      toast(`Accepted ${pendingChallenge.name}'s challenge!`);
+      pendingChallenge = null;
+    }
     player.frozen = anyModalOpen();
   });
 }
 
-let nearSpawn = null, nearPokecenter = null, nearClaude = false;
+let nearSpawn = null, nearPokecenter = null, nearClaude = false, nearRemote = null;
+let pendingChallenge = null;
 let grassCooldown = 0;
+const remoteMeshes = new Map(); // id -> {group, label}
+
+function reconcileRemotePlayers(dt) {
+  for (const [id, rp] of net.remotePlayers) {
+    let rm = remoteMeshes.get(id);
+    if (!rm) {
+      const group = buildTrainer();
+      const blue = group.children[2].material.clone();
+      blue.color.set(0x4878e8); // blue shirt = other trainers
+      for (const i of [2, 3, 4]) group.children[i].material = blue; // torso + arms
+      const label = makeLabel(rp.name, '#8fd0ff', 18);
+      label.position.y = 9;
+      group.add(label);
+      scene.add(group);
+      rm = { group };
+      remoteMeshes.set(id, rm);
+      group.position.set(rp.x, heightAt(rp.x, rp.z), rp.z);
+    }
+    // smooth toward the latest network position
+    const g = rm.group;
+    const k = Math.min(1, dt * 8);
+    g.position.x += (rp.x - g.position.x) * k;
+    g.position.z += (rp.z - g.position.z) * k;
+    g.position.y = heightAt(g.position.x, g.position.z);
+    g.rotation.y = rp.h ?? 0;
+    const movedDist = Math.hypot(rp.x - g.position.x, rp.z - g.position.z);
+    const ud = g.userData;
+    ud.walkT = (ud.walkT ?? 0) + dt * (movedDist > 0.3 ? 9 : 0);
+    ud.legL.rotation.x = Math.sin(ud.walkT) * 0.7;
+    ud.legR.rotation.x = -Math.sin(ud.walkT) * 0.7;
+  }
+  for (const [id, rm] of remoteMeshes) {
+    if (!net.remotePlayers.has(id)) {
+      scene.remove(rm.group);
+      remoteMeshes.delete(id);
+    }
+  }
+}
 function tick(dt, now) {
   if (mode !== 'world') return;
   player.frozen = anyModalOpen();
@@ -235,7 +294,8 @@ function tick(dt, now) {
   follower.setMon(save.party[0]);
   follower.update(dt, player, atmosphere, moved);
   spawns.update(dt, player, startX, startZ, atmosphere);
-  net.update(dt);
+  net.sendState(dt, player.pos.x, player.pos.z, player.heading, save.party[0]?.id);
+  reconcileRemotePlayers(dt);
   save.playSeconds += dt;
 
   // tall grass: surprise encounters while walking through it
@@ -259,7 +319,14 @@ function tick(dt, now) {
   const city = nearCity(player.pos.x, player.pos.z, 13);
   nearPokecenter = city ?? null;
   nearClaude = claudeNPC && Math.hypot(player.pos.x - claudeNPC.x, player.pos.z - claudeNPC.z) < 10;
+  nearRemote = null;
+  let nrd = 10;
+  for (const [id, rp] of net.remotePlayers) {
+    const d = Math.hypot(player.pos.x - rp.x, player.pos.z - rp.z);
+    if (d < nrd) { nrd = d; nearRemote = rp; }
+  }
   if (nearClaude) showPrompt(`E — Battle TRAINER CLAUDE ${save.claudeBeaten ? `(rematches won: ${save.claudeBeaten})` : '(he remembers losing to you)'}`);
+  else if (nearRemote) showPrompt(`E — Challenge TRAINER ${nearRemote.name} to a PvP battle!`);
   else if (nearSpawn) showPrompt(spawns.promptFor(nearSpawn));
   else if (nearPokecenter) showPrompt(`E — Pokécenter ${nearPokecenter.name}: heal party & restock balls`);
   else showPrompt(null);
@@ -281,6 +348,10 @@ function tick(dt, now) {
 async function interact() {
   if (mode !== 'world' || anyModalOpen()) return;
   if (nearClaude) return battleClaude();
+  if (nearRemote) {
+    net.challenge(nearRemote.id, serializeTeam(save.party));
+    return;
+  }
   if (nearSpawn) return battleWild(nearSpawn);
   if (nearPokecenter) {
     for (const p of save.party) {
@@ -323,6 +394,19 @@ async function battleClaude() {
   }
   afterBattle(result);
 }
+async function battlePvp(msg) {
+  mode = 'battle';
+  player.frozen = true;
+  closeModals();
+  const result = await startPvpBattle(net, msg);
+  toast(result.youWon
+    ? `🏆 You beat ${msg.oppName} in PvP!`
+    : `${msg.oppName} won this time — rematch?`);
+  // PvP doesn't faint your real party — it's a friendly exhibition match
+  mode = 'world';
+  player.frozen = false;
+}
+
 function afterBattle(result) {
   if (result.outcome === 'lose') {
     // blackout: revive at the nearest city's Pokécenter
